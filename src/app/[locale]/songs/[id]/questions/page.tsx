@@ -7,6 +7,7 @@ import { TablelandClient, type Song } from '@/services/tableland'
 import { getIPFSUrl } from '@/lib/utils'
 import { BackButton } from '@/components/ui/back-button'
 import { Button } from '@/components/ui/button'
+import { AuthGuard } from '@/components/AuthGuard'
 
 interface Option {
   a: string
@@ -133,117 +134,123 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-        <div className="text-white">Loading questions...</div>
-      </div>
+      <AuthGuard>
+        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+          <div className="text-white">Loading questions...</div>
+        </div>
+      </AuthGuard>
     )
   }
 
   if (error || !song || questions.length === 0) {
     return (
-      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-400 mb-4">{error || 'No questions available'}</p>
-          <Button 
-            onClick={() => window.location.reload()}
-            variant="ghost"
-            className="text-white hover:bg-neutral-800"
-          >
-            {currentLocale === 'en' ? 'Try Again' : '重试'}
-          </Button>
+      <AuthGuard>
+        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-red-400 mb-4">{error || 'No questions available'}</p>
+            <Button 
+              onClick={() => window.location.reload()}
+              variant="ghost"
+              className="text-white hover:bg-neutral-800"
+            >
+              {currentLocale === 'en' ? 'Try Again' : '重试'}
+            </Button>
+          </div>
         </div>
-      </div>
+      </AuthGuard>
     )
   }
 
   const currentQuestion = questions[currentQuestionIndex]
 
   return (
-    <div className="min-h-screen bg-neutral-900 flex flex-col">
-      <BackButton />
-      
-      <div className="flex-1 p-6 pt-20">
-        <div className="max-w-2xl mx-auto">
-          {/* Progress indicator */}
-          <div className="mb-8">
-            <div className="flex justify-between items-center text-white mb-2">
-              <span>Question {currentQuestionIndex + 1} of {questions.length}</span>
-              <span>{Math.round((currentQuestionIndex + 1) / questions.length * 100)}%</span>
-            </div>
-            <div className="h-2 bg-neutral-800 rounded-full">
-              <div 
-                className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Question */}
-          <div className="space-y-8">
-            <h2 className="text-xl text-white">{currentQuestion.question}</h2>
-            
-            {/* Options */}
-            <div className="space-y-4">
-              {Object.entries(currentQuestion.options).map(([key, value]) => (
-                <button
-                  key={key}
-                  onClick={() => !isAnswered && handleAnswer(key)}
-                  className={`w-full p-4 rounded-lg border text-left transition-colors ${
-                    isAnswered
-                      ? key === currentQuestion.answer
-                        ? 'bg-green-500/20 border-green-500 text-white'
-                        : key === selectedAnswer
-                        ? 'bg-red-500/20 border-red-500 text-white'
-                        : 'bg-neutral-800/50 border-neutral-700 text-neutral-400'
-                      : selectedAnswer === key
-                      ? 'bg-blue-500/20 border-blue-500 text-white'
-                      : 'bg-neutral-800 border-neutral-700 text-white hover:border-blue-500'
-                  }`}
-                  disabled={isAnswered}
-                >
-                  <div className="flex items-center">
-                    <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center mr-3">
-                      {key.toUpperCase()}
-                    </span>
-                    {value}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Explanation */}
-            {isAnswered && (
-              <div className={`p-4 rounded-lg ${
-                selectedAnswer === currentQuestion.answer
-                  ? 'bg-green-500/20 border border-green-500'
-                  : 'bg-red-500/20 border border-red-500'
-              }`}>
-                <p className="text-white">{currentQuestion.explanation}</p>
+    <AuthGuard>
+      <div className="min-h-screen bg-neutral-900 flex flex-col">
+        <BackButton />
+        
+        <div className="flex-1 p-6 pt-20">
+          <div className="max-w-2xl mx-auto">
+            {/* Progress indicator */}
+            <div className="mb-8">
+              <div className="flex justify-between items-center text-white mb-2">
+                <span>Question {currentQuestionIndex + 1} of {questions.length}</span>
+                <span>{Math.round((currentQuestionIndex + 1) / questions.length * 100)}%</span>
               </div>
-            )}
+              <div className="h-2 bg-neutral-800 rounded-full">
+                <div 
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
+                />
+              </div>
+            </div>
 
-            {/* Next button */}
-            {isAnswered && currentQuestionIndex < questions.length - 1 && (
-              <Button
-                onClick={handleNext}
-                className="w-full"
-              >
-                Next Question
-              </Button>
-            )}
+            {/* Question */}
+            <div className="space-y-8">
+              <h2 className="text-xl text-white">{currentQuestion.question}</h2>
+              
+              {/* Options */}
+              <div className="space-y-4">
+                {Object.entries(currentQuestion.options).map(([key, value]) => (
+                  <button
+                    key={key}
+                    onClick={() => !isAnswered && handleAnswer(key)}
+                    className={`w-full p-4 rounded-lg border text-left transition-colors ${
+                      isAnswered
+                        ? key === currentQuestion.answer
+                          ? 'bg-green-500/20 border-green-500 text-white'
+                          : key === selectedAnswer
+                          ? 'bg-red-500/20 border-red-500 text-white'
+                          : 'bg-neutral-800/50 border-neutral-700 text-neutral-400'
+                        : selectedAnswer === key
+                        ? 'bg-blue-500/20 border-blue-500 text-white'
+                        : 'bg-neutral-800 border-neutral-700 text-white hover:border-blue-500'
+                    }`}
+                    disabled={isAnswered}
+                  >
+                    <div className="flex items-center">
+                      <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center mr-3">
+                        {key.toUpperCase()}
+                      </span>
+                      {value}
+                    </div>
+                  </button>
+                ))}
+              </div>
 
-            {/* Complete button */}
-            {isAnswered && currentQuestionIndex === questions.length - 1 && (
-              <Button
-                onClick={() => window.location.href = `/${currentLocale}/songs/${params.id}/questions/complete`}
-                className="w-full"
-              >
-                Complete
-              </Button>
-            )}
+              {/* Explanation */}
+              {isAnswered && (
+                <div className={`p-4 rounded-lg ${
+                  selectedAnswer === currentQuestion.answer
+                    ? 'bg-green-500/20 border border-green-500'
+                    : 'bg-red-500/20 border border-red-500'
+                }`}>
+                  <p className="text-white">{currentQuestion.explanation}</p>
+                </div>
+              )}
+
+              {/* Next button */}
+              {isAnswered && currentQuestionIndex < questions.length - 1 && (
+                <Button
+                  onClick={handleNext}
+                  className="w-full"
+                >
+                  Next Question
+                </Button>
+              )}
+
+              {/* Complete button */}
+              {isAnswered && currentQuestionIndex === questions.length - 1 && (
+                <Button
+                  onClick={() => window.location.href = `/${currentLocale}/songs/${params.id}/questions/complete`}
+                  className="w-full"
+                >
+                  Complete
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </AuthGuard>
   )
 } 
