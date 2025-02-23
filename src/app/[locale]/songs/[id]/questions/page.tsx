@@ -8,6 +8,7 @@ import { getIPFSUrl } from '@/lib/utils'
 import { BackButton } from '@/components/ui/back-button'
 import { Button } from '@/components/ui/button'
 import { AuthGuard } from '@/components/AuthGuard'
+import { useXmtp } from '@/hooks/useXmtp'
 
 interface Option {
   a: string
@@ -44,6 +45,9 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { currentLocale, isLearningChinese } = useLanguageStore()
+  const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, sendAnswer } = useXmtp()
+  const [explanation, setExplanation] = useState<string | null>(null)
+  const [isValidating, setIsValidating] = useState(false)
 
   useEffect(() => {
     const fetchSongAndQuestions = async () => {
@@ -119,9 +123,32 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
     fetchSongAndQuestions()
   }, [params.id, isLearningChinese])
 
-  const handleAnswer = (answer: string) => {
+  const handleAnswer = async (answer: string) => {
     setSelectedAnswer(answer)
     setIsAnswered(true)
+    setIsValidating(true)
+    setExplanation('Sending to tutor...')
+
+    try {
+      if (!isXmtpInitialized) {
+        setError('Please wait for messaging to initialize')
+        return
+      }
+
+      const currentQuestion = questions[currentQuestionIndex]
+      const response = await sendAnswer({
+        uuid: currentQuestion.uuid || `temp-${currentQuestionIndex}`,
+        selectedAnswer: answer
+      })
+
+      setExplanation(response.explanation)
+    } catch (err) {
+      console.error('Failed to validate answer:', err)
+      setError('Failed to validate answer with tutor')
+      setExplanation('Could not get response from tutor')
+    } finally {
+      setIsValidating(false)
+    }
   }
 
   const handleNext = () => {
@@ -129,6 +156,7 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
       setCurrentQuestionIndex(prev => prev + 1)
       setSelectedAnswer(null)
       setIsAnswered(false)
+      setExplanation(null)
     }
   }
 
@@ -224,7 +252,21 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
                     ? 'bg-green-500/20 border border-green-500'
                     : 'bg-red-500/20 border border-red-500'
                 }`}>
-                  <p className="text-white">{currentQuestion.explanation}</p>
+                  <div className="text-white">
+                    {isValidating ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                        <span>{explanation}</span>
+                      </div>
+                    ) : (
+                      <p>{explanation || 'Waiting for tutor response...'}</p>
+                    )}
+                  </div>
+                  {xmtpError && (
+                    <p className="text-red-400 mt-2">
+                      {xmtpError instanceof Error ? xmtpError.message : String(xmtpError)}
+                    </p>
+                  )}
                 </div>
               )}
 
