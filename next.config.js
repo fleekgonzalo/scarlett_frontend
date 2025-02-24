@@ -13,6 +13,7 @@ const nextConfig = {
         path: false
       }
     }
+    config.externals.push('pino-pretty', 'lokijs', 'encoding')
     return config
   },
   async headers() {
@@ -23,8 +24,8 @@ const nextConfig = {
           {
             key: 'Content-Security-Policy',
             value: process.env.NODE_ENV === 'development' 
-              ? "frame-ancestors 'self' http://localhost:* https://silksecure.net https://wallet.silk.sc;"
-              : "frame-ancestors 'self' https://silksecure.net https://wallet.silk.sc;"
+              ? "frame-ancestors 'self' http://localhost:* https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com;"
+              : "frame-ancestors 'self' https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com;"
           },
           {
             // Required for SharedArrayBuffer

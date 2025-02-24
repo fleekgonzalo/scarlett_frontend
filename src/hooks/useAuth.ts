@@ -1,44 +1,54 @@
 'use client'
 
-import { usePrivy, useWallets, type User } from '@privy-io/react-auth'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
+import { useAccount, useDisconnect } from 'wagmi'
+import { useAppKit } from '@/context'
 
 export function useAuth() {
-  const { ready, authenticated, user, login: privyLogin, createWallet } = usePrivy()
-  const { wallets, ready: walletsReady } = useWallets()
+  const { address, isConnected } = useAccount()
+  const { disconnectAsync } = useDisconnect()
+  const appKit = useAppKit()
+  const [isAuthenticating, setIsAuthenticating] = useState(false)
 
   const login = useCallback(async () => {
     try {
-      // First, handle the login
-      await privyLogin()
+      console.log('Starting login process...')
+      setIsAuthenticating(true)
       
-      // Wait for wallets to be ready
-      if (!walletsReady) {
-        console.log('Waiting for wallets to be ready...')
-        return
-      }
+      console.log('Opening Reown AppKit modal...')
+      await appKit.open()
+      console.log('Modal opened')
 
-      // If user has no wallet after login, create one
-      if (authenticated && wallets.length === 0) {
-        console.log('Creating embedded wallet for user...')
-        try {
-          const wallet = await createWallet()
-          console.log('Wallet created:', wallet)
-        } catch (err) {
-          console.error('Failed to create wallet:', err)
-        }
-      }
     } catch (err) {
-      console.error('Failed to login:', err)
+      console.error('Login process failed:', err)
+      throw err
+    } finally {
+      setIsAuthenticating(false)
     }
-  }, [privyLogin, authenticated, walletsReady, wallets.length, createWallet])
+  }, [appKit])
+
+  const logout = useCallback(async () => {
+    try {
+      console.log('Logging out...')
+      await disconnectAsync()
+      console.log('Logout successful')
+      if (typeof window !== 'undefined') {
+        localStorage.clear()
+      }
+      window.location.reload()
+    } catch (err) {
+      console.error('Logout failed:', err)
+      throw err
+    }
+  }, [disconnectAsync])
 
   return {
-    ready: ready && walletsReady,
-    isAuthenticated: authenticated,
-    hasWallet: wallets.length > 0,
-    user,
+    ready: true,
+    isAuthenticated: isConnected,
+    hasWallet: isConnected,
+    user: address ? { id: address } : null,
     login,
-    isLoading: !ready || !walletsReady
+    logout,
+    isLoading: isAuthenticating
   }
 } 

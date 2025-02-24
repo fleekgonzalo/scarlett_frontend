@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Client, type Signer } from '@xmtp/browser-sdk'
-import { usePrivy, useWallets } from '@privy-io/react-auth'
-import { useSignMessage } from 'wagmi'
+import { useAccount, useSignMessage } from 'wagmi'
 
 const TUTOR_BOT_ADDRESS = '0x39ba6e2959cBBcbd5D18D02777ddD2E59aA7E8B7'
 const ENCODING = 'binary'
@@ -37,8 +36,7 @@ interface Message {
 }
 
 export function useXmtp() {
-  const { ready: privyReady, authenticated, user } = usePrivy()
-  const { ready: walletsReady, wallets } = useWallets()
+  const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
   
   const [client, setClient] = useState<Client | null>(null)
@@ -46,6 +44,8 @@ export function useXmtp() {
   const [error, setError] = useState<string | null>(null)
   const [hasInitialized, setHasInitialized] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
+  const [initAttempts, setInitAttempts] = useState(0)
+  const MAX_INIT_ATTEMPTS = 5
 
   // Load message history when client is initialized
   const loadMessageHistory = async (xmtp: Client) => {
@@ -63,6 +63,10 @@ export function useXmtp() {
             'addedInboxes' in msg.content &&
             'removedInboxes' in msg.content &&
             'metadataFieldChanges' in msg.content
+          
+          if (isSystemMessage) {
+            console.log('Filtering out system message:', msg.content)
+          }
           return !isSystemMessage
         })
         .map(msg => ({
@@ -83,72 +87,88 @@ export function useXmtp() {
     const initXmtp = async () => {
       // Skip if already initialized or initializing
       if (hasInitialized || isInitializing || client) {
+        console.log('Skipping XMTP init - already initialized or in progress:', {
+          hasInitialized,
+          isInitializing,
+          hasClient: !!client
+        })
         return
       }
 
       // Skip if not ready
-      if (!privyReady || !authenticated) {
+      if (!isConnected || !address) {
+        console.log('Skipping XMTP init - not connected:', {
+          isConnected,
+          address
+        })
         return
       }
 
-      // Skip if no wallets
-      if (!walletsReady || wallets.length === 0) {
+      // Check if we've exceeded max attempts
+      if (initAttempts >= MAX_INIT_ATTEMPTS) {
+        console.error('Exceeded max XMTP init attempts')
+        setError('Failed to initialize messaging after multiple attempts')
         return
       }
 
       try {
+        console.log('Starting XMTP initialization...')
         setIsInitializing(true)
         setError(null)
+        setInitAttempts(prev => prev + 1)
 
-        // Find any available wallet with an address
-        const availableWallet = wallets.find(w => w.address)
-        
-        if (!availableWallet?.address) {
-          throw new Error('No wallet available with an address')
-        }
-
-        // Get the provider from the wallet
-        const provider = await availableWallet.getEthereumProvider()
-        
-        // Create a signer interface that uses the provider
+        // Create a signer interface that uses wagmi's signMessage
         const signer: Signer = {
-          getAddress: () => availableWallet.address,
+          getAddress: () => address,
           signMessage: async (message: string | Uint8Array) => {
+            console.log('Signing message for XMTP...')
             const messageStr = message instanceof Uint8Array 
               ? new TextDecoder().decode(message)
               : message
             
-            const signature = await provider.request({
-              method: 'personal_sign',
-              params: [messageStr, availableWallet.address]
-            })
-            
-            // Convert signature to bytes
-            const hexString = signature.replace('0x', '')
-            const bytes = new Uint8Array(hexString.length / 2)
-            for (let i = 0; i < bytes.length; i++) {
-              bytes[i] = parseInt(hexString.slice(i * 2, i * 2 + 2), 16)
+            try {
+              const signature = await signMessageAsync({ message: messageStr })
+              
+              // Convert signature to bytes
+              const hexString = signature.replace('0x', '')
+              const bytes = new Uint8Array(hexString.length / 2)
+              for (let i = 0; i < bytes.length; i++) {
+                bytes[i] = parseInt(hexString.slice(i * 2, i * 2 + 2), 16)
+              }
+              console.log('Message signed successfully')
+              return bytes
+            } catch (err) {
+              console.error('Failed to sign message:', err)
+              // If user rejected, don't retry
+              if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message.includes('User denied')) {
+                setInitAttempts(MAX_INIT_ATTEMPTS)
+              }
+              throw err
             }
-            return bytes
           }
         }
         
+        console.log('Creating XMTP client...')
         // Create XMTP client
         const xmtp = await Client.create(
           signer,
           window.crypto.getRandomValues(new Uint8Array(32)),
           { env: 'dev' }
         )
+        console.log('XMTP client created successfully')
 
         setClient(xmtp)
         setHasInitialized(true)
+        setInitAttempts(0) // Reset attempts on success
 
         // Load message history
         await loadMessageHistory(xmtp)
 
         // Initialize a test conversation
         try {
+          console.log('Creating test conversation...')
           await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
+          console.log('Test conversation created')
         } catch (convErr) {
           console.error('Failed to create conversation:', convErr)
         }
@@ -156,13 +176,27 @@ export function useXmtp() {
         console.error('Failed to initialize XMTP:', err)
         setError(err instanceof Error ? err.message : 'Failed to initialize messaging')
         setClient(null)
+        
+        // Don't retry if user rejected or if we've exceeded max attempts
+        if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message.includes('User denied')) {
+          setInitAttempts(MAX_INIT_ATTEMPTS)
+        } else if (initAttempts < MAX_INIT_ATTEMPTS) {
+          console.log(`Will retry XMTP init in 2s (attempt ${initAttempts + 1}/${MAX_INIT_ATTEMPTS})`)
+          setTimeout(() => {
+            setIsInitializing(false)
+            initXmtp()
+          }, 2000)
+        }
       } finally {
         setIsInitializing(false)
       }
     }
 
-    initXmtp()
-  }, [privyReady, walletsReady, authenticated, wallets, hasInitialized, isInitializing, client])
+    // Only initialize if we have everything we need
+    if (isConnected && address) {
+      initXmtp()
+    }
+  }, [isConnected, address, hasInitialized, isInitializing, client, initAttempts, signMessageAsync])
 
   // Function to send answer to tutor bot
   const sendAnswer = async (questionAnswer: QuestionAnswer) => {
@@ -345,7 +379,7 @@ export function useXmtp() {
 
   return {
     isInitialized: !!client,
-    isLoading: isInitializing || (!hasInitialized && (privyReady && authenticated && walletsReady && wallets.length > 0)),
+    isLoading: isInitializing || (!hasInitialized && isConnected && !!address),
     error,
     messages,
     sendAnswer,

@@ -20,7 +20,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const { currentLocale, isLearningChinese } = useLanguageStore()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, messages: xmtpMessages, sendMessage } = useXmtp()
-  const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
+  const { isAuthenticated, isLoading: isAuthLoading, login, hasWallet } = useAuth()
   const [isMusicDrawerOpen, setIsMusicDrawerOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [isMessagePending, setIsMessagePending] = useState(false)
@@ -66,6 +66,7 @@ export default function Home() {
       await sendMessage(message)
     } catch (err) {
       console.error('Failed to send message:', err)
+      setError(err instanceof Error ? err.message : 'Failed to send message')
     }
   }
 
@@ -84,8 +85,46 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Loading />
-          <p className="text-neutral-400">Loading...</p>
+          <Loading size={32} color="#3B82F6" />
+          <p className="text-neutral-400">Initializing...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while initializing XMTP
+  if (isAuthenticated && !hasWallet) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loading size={32} color="#3B82F6" />
+          <p className="text-neutral-400">Creating your secure chat wallet...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading state while initializing XMTP
+  if (isAuthenticated && hasWallet && isXmtpLoading) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loading size={32} color="#3B82F6" />
+          <p className="text-neutral-400">Initializing secure chat...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state if XMTP failed to initialize
+  if (isAuthenticated && xmtpError) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <p className="text-red-400">{xmtpError}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
         </div>
       </div>
     )
