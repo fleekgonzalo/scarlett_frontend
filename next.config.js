@@ -25,6 +25,16 @@ const nextConfig = {
             value: process.env.NODE_ENV === 'development' 
               ? "frame-ancestors 'self' http://localhost:* https://silksecure.net https://wallet.silk.sc;"
               : "frame-ancestors 'self' https://silksecure.net https://wallet.silk.sc;"
+          },
+          {
+            // Required for SharedArrayBuffer
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'require-corp'
+          },
+          {
+            // Required for SharedArrayBuffer
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin'
           }
         ]
       }

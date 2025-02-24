@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mainnet } from 'viem/chains'
 import { WagmiProvider, createConfig } from '@privy-io/wagmi'
 import { http } from 'wagmi'
+import type { Chain } from 'viem'
 
 const queryClient = new QueryClient()
 
@@ -38,17 +39,19 @@ export function Providers({
     <PrivyProvider
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ''}
       config={{
-        loginMethods: ['email'],
+        loginMethods: ['email', 'wallet', 'google', 'apple', 'farcaster'],
         appearance: {
           theme: 'dark',
           accentColor: '#3B82F6', // blue-500
           showWalletLoginFirst: false
         },
-        defaultChain: mainnet,
+        // Configure embedded wallet settings
         embeddedWallets: {
-          createOnLogin: 'users-without-wallets'
+          createOnLogin: 'all-users'
         },
-        supportedChains: [mainnet]
+        // Chain configuration
+        defaultChain: mainnet as Chain,
+        supportedChains: [mainnet] as Chain[]
       }}
     >
       <QueryClientProvider client={queryClient}>

@@ -1,12 +1,30 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Client } from '@xmtp/xmtp-js'
+import { Client, type Signer } from '@xmtp/browser-sdk'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
-import { type Hex } from 'viem'
-import { useAccount, useSignMessage } from 'wagmi'
+import { useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0xB0dD2a6FAB0180C8b2fc4f144273Cc693d7896Ed'
+const TUTOR_BOT_ADDRESS = '0x70b499c24Ff19FeBb8853B5F059e0506b4ce8905'
+const ENCODING = 'binary'
+
+// Helper functions for key storage
+const buildLocalStorageKey = (walletAddress: string) => 
+  walletAddress ? `xmtp:dev:keys:${walletAddress}` : ''
+
+const loadKeys = (walletAddress: string): Uint8Array | null => {
+  if (typeof window === 'undefined') return null
+  const val = localStorage.getItem(buildLocalStorageKey(walletAddress))
+  return val ? Buffer.from(val, ENCODING) : null
+}
+
+const storeKeys = (walletAddress: string, keys: Uint8Array) => {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(
+    buildLocalStorageKey(walletAddress),
+    Buffer.from(keys).toString(ENCODING)
+  )
+}
 
 interface QuestionAnswer {
   uuid: string
@@ -14,9 +32,8 @@ interface QuestionAnswer {
 }
 
 export function useXmtp() {
-  const { ready, authenticated } = usePrivy()
-  const { wallets } = useWallets()
-  const { address } = useAccount()
+  const { ready: privyReady, authenticated, user } = usePrivy()
+  const { ready: walletsReady, wallets } = useWallets()
   const { signMessageAsync } = useSignMessage()
   
   const [client, setClient] = useState<Client | null>(null)
@@ -26,38 +43,128 @@ export function useXmtp() {
   // Initialize XMTP client when wallet is connected
   useEffect(() => {
     const initXmtp = async () => {
-      if (!ready || !authenticated || isInitializing || client || !address) return
+      // Log all available wallets and their details
+      console.log('Available wallets:', wallets.map(w => ({
+        type: w.walletClientType,
+        address: w.address,
+        chainId: w.chainId
+      })))
+
+      console.log('XMTP Init State:', {
+        privyReady,
+        walletsReady,
+        authenticated,
+        isInitializing,
+        hasClient: !!client,
+        walletsCount: wallets.length,
+        userId: user?.id,
+        userWallets: user?.linkedAccounts
+      })
+
+      if (!privyReady || !walletsReady || !authenticated || isInitializing || client) {
+        console.log('XMTP Init Skipped:', {
+          notPrivyReady: !privyReady,
+          notWalletsReady: !walletsReady,
+          notAuthenticated: !authenticated,
+          isInitializing,
+          hasExistingClient: !!client
+        })
+        return
+      }
 
       try {
         setIsInitializing(true)
         setError(null)
 
-        // Create a signer interface that uses Wagmi's signMessage
-        const signer = {
-          getAddress: async () => address as Hex,
-          signMessage: async (message: Uint8Array | string) => {
-            // Convert message to string if it's a Uint8Array
+        // Find any available wallet with an address
+        const availableWallet = wallets.find(w => w.address)
+        
+        if (!availableWallet?.address) {
+          console.log('No wallet found with address. Wallet details:', {
+            wallets: wallets.map(w => ({
+              type: w.walletClientType,
+              address: w.address
+            })),
+            userLinkedAccounts: user?.linkedAccounts
+          })
+          throw new Error('No wallet available with an address')
+        }
+
+        console.log('Creating XMTP signer with wallet:', {
+          type: availableWallet.walletClientType,
+          address: availableWallet.address,
+          chainId: availableWallet.chainId
+        })
+
+        // Get the provider from the wallet
+        const provider = await availableWallet.getEthereumProvider()
+        console.log('Got Ethereum provider')
+        
+        // Create a signer interface that uses the provider
+        const signer: Signer = {
+          getAddress: () => availableWallet.address,
+          signMessage: async (message: string | Uint8Array) => {
             const messageStr = message instanceof Uint8Array 
               ? new TextDecoder().decode(message)
               : message
 
-            // Use Wagmi's signMessage
-            const signature = await signMessageAsync({ message: messageStr })
-            return signature as Hex
+            console.log('Signing XMTP message:', {
+              message: messageStr,
+              address: availableWallet.address
+            })
+            
+            try {
+              // Use the provider to sign the message
+              const signature = await provider.request({
+                method: 'personal_sign',
+                params: [messageStr, availableWallet.address]
+              })
+              console.log('Got signature:', signature)
+              
+              // Convert signature to bytes
+              const hexString = signature.replace('0x', '')
+              const bytes = new Uint8Array(hexString.length / 2)
+              for (let i = 0; i < bytes.length; i++) {
+                bytes[i] = parseInt(hexString.slice(i * 2, i * 2 + 2), 16)
+              }
+              return bytes
+            } catch (signError) {
+              console.error('Error signing message:', signError)
+              throw signError
+            }
           }
         }
+        
+        // Create XMTP client
+        console.log('Creating XMTP client...')
+        const xmtp = await Client.create(
+          signer,
+          window.crypto.getRandomValues(new Uint8Array(32)),
+          { env: 'dev' }
+        )
 
-        // Request XMTP signature
-        const xmtp = await Client.create(signer, { env: 'production' })
+        console.log('XMTP client created successfully')
         setClient(xmtp)
 
-        // Check if we can message the tutor bot
-        const canMessage = await xmtp.canMessage(TUTOR_BOT_ADDRESS)
-        if (!canMessage) {
-          throw new Error('Cannot message tutor bot')
+        // Initialize a test conversation without checking canMessage
+        try {
+          console.log('Creating test conversation...')
+          const conversation = await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
+          console.log('Conversation created successfully')
+        } catch (convErr) {
+          console.error('Failed to create conversation:', convErr)
+          // Don't throw here - just log the error
+          // The conversation may still work even if initial creation fails
         }
       } catch (err) {
         console.error('Failed to initialize XMTP:', err)
+        if (err instanceof Error) {
+          console.error('Error details:', {
+            message: err.message,
+            stack: err.stack,
+            cause: err.cause
+          })
+        }
         setError('Failed to initialize messaging')
         setClient(null)
       } finally {
@@ -66,41 +173,50 @@ export function useXmtp() {
     }
 
     initXmtp()
-  }, [ready, authenticated, address, signMessageAsync])
+  }, [privyReady, walletsReady, authenticated, wallets, user?.id])
 
   // Function to send answer to tutor bot
   const sendAnswer = async (questionAnswer: QuestionAnswer) => {
     if (!client) {
+      console.error('Cannot send answer: XMTP client not initialized')
       throw new Error('XMTP client not initialized')
     }
 
     try {
+      console.log('Creating conversation with tutor bot...')
       // Create or load conversation
-      const conversation = await client.conversations.newConversation(TUTOR_BOT_ADDRESS)
+      const conversation = await client.conversations.newDm(TUTOR_BOT_ADDRESS)
+      console.log('Conversation created/loaded')
 
       // Send the answer as JSON
-      await conversation.send(JSON.stringify(questionAnswer))
+      const message = JSON.stringify(questionAnswer)
+      console.log('Sending message to tutor:', message)
+      await conversation.send(message)
+      console.log('Message sent successfully')
 
       // Wait for bot response (with timeout)
       let botResponse = null
       const startTime = Date.now()
       const timeout = 10000 // 10 seconds timeout
 
+      console.log('Waiting for bot response...')
       while (!botResponse && Date.now() - startTime < timeout) {
         // Get latest messages
         const messages = await conversation.messages()
         const latestMessage = messages[messages.length - 1]
+        console.log('Latest message:', latestMessage)
 
         // Check if we have a response after our message
         if (latestMessage && latestMessage.content) {
           try {
             const response = JSON.parse(latestMessage.content)
+            console.log('Parsed response:', response)
             if (response.uuid === questionAnswer.uuid) {
               botResponse = response
               break
             }
           } catch (e) {
-            // Not JSON or not the response we're looking for
+            console.log('Not a valid JSON response or not the response we are looking for')
             continue
           }
         }
@@ -119,6 +235,13 @@ export function useXmtp() {
       }
     } catch (err) {
       console.error('Failed to send answer:', err)
+      if (err instanceof Error) {
+        console.error('Error details:', {
+          message: err.message,
+          stack: err.stack,
+          cause: err.cause
+        })
+      }
       setError('Failed to send answer to tutor')
       throw err
     }
