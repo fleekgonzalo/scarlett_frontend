@@ -38,6 +38,7 @@ export function useAuth() {
     isAuthenticated: authenticated,
     hasWallet: wallets.length > 0,
     user,
-    login
+    login,
+    isLoading: !ready || !walletsReady
   }
 } 

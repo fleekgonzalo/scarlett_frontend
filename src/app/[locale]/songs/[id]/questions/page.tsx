@@ -170,9 +170,13 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
         }
       } catch (error) {
         console.error('Error fetching song/questions:', error)
-        setError(typeof error === 'object' && error !== null && 'message' in error
-          ? error.message
-          : 'Failed to load content')
+        setError(
+          error instanceof Error 
+            ? error.message 
+            : typeof error === 'object' && error !== null && 'message' in error
+              ? String((error as { message: unknown }).message)
+              : 'Failed to load content'
+        )
       } finally {
         setIsLoading(false)
       }
@@ -372,9 +376,9 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
                       <p>{explanation || 'Waiting for tutor response...'}</p>
                     )}
                   </div>
-                  {xmtpError && (
+                  {(error || xmtpError) && (
                     <p className="text-red-400 mt-2">
-                      {xmtpError instanceof Error ? xmtpError.message : String(xmtpError)}
+                      {error || (typeof xmtpError === 'string' ? xmtpError : xmtpError?.message) || 'An error occurred'}
                     </p>
                   )}
                 </div>

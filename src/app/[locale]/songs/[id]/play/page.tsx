@@ -9,10 +9,7 @@ import { BackButton } from '@/components/ui/back-button'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Play, Pause } from 'lucide-react'
-import { ring } from 'ldrs'
-
-// Register the loader
-ring.register()
+import { Loading } from '@/components/ui/loading'
 
 interface Lyric {
   line: string
@@ -115,7 +112,13 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
             }
           } catch (parseError) {
             console.error('Error parsing lyrics JSON:', parseError)
-            setError(`Failed to parse lyrics data: ${parseError.message}`)
+            const errorMessage = 
+              typeof parseError === 'object' && 
+              parseError !== null && 
+              'message' in parseError
+                ? String(parseError.message)
+                : 'Unknown error'
+            setError(`Failed to parse lyrics data: ${errorMessage}`)
           }
         }
       } catch (error) {
@@ -243,13 +246,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
               disabled={isLoadingAudio || !audioRef.current}
             >
               {isLoadingAudio ? (
-                <l-ring
-                  size="32"
-                  stroke="3"
-                  bg-opacity="0"
-                  speed="2"
-                  color="white"
-                />
+                <Loading size={32} color="#ffffff" />
               ) : isPlaying ? (
                 <Pause className="w-8 h-8 text-white" />
               ) : (

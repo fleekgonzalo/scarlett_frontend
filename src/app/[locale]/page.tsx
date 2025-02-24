@@ -10,9 +10,7 @@ import { useXmtp } from '@/hooks/useXmtp'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Music, SendHorizontalIcon } from 'lucide-react'
-import { ring } from 'ldrs'
-
-ring.register()
+import { Loading } from '@/components/ui/loading'
 
 const MESSAGES_STORAGE_KEY = 'chat_messages'
 
@@ -21,39 +19,12 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { currentLocale, isLearningChinese } = useLanguageStore()
-  const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, sendMessage } = useXmtp()
+  const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, messages: xmtpMessages, sendMessage } = useXmtp()
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
   const [isMusicDrawerOpen, setIsMusicDrawerOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [isMessagePending, setIsMessagePending] = useState(false)
   
-  // Load saved messages on mount
-  useEffect(() => {
-    const savedMessages = localStorage.getItem(MESSAGES_STORAGE_KEY)
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages)
-        // Filter out any "Please sign in" messages
-        const cleanedMessages = parsedMessages.filter((msg: any) => 
-          msg.content !== 'Please sign in to continue...'
-        )
-        setMessages(cleanedMessages)
-      } catch (err) {
-        console.error('Failed to load saved messages:', err)
-      }
-    }
-  }, [])
-
-  // Save messages when they change
-  useEffect(() => {
-    // Only save messages that aren't auth-related
-    const messagesToSave = messages.filter(msg => 
-      msg.content !== 'Please sign in to continue...'
-    )
-    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(messagesToSave))
-  }, [messages])
-
   useEffect(() => {
     const fetchSongs = async () => {
       try {
@@ -74,38 +45,10 @@ export default function Home() {
     fetchSongs()
   }, [])
 
-  // Watch for XMTP initialization and send pending message
-  useEffect(() => {
-    const sendPendingMessage = async () => {
-      if (isMessagePending && isXmtpInitialized && isAuthenticated) {
-        try {
-          const lastUserMessage = messages.findLast(m => m.role === 'user')
-          if (lastUserMessage) {
-            const response = await sendMessage(lastUserMessage.content)
-            setMessages(prev => [...prev, { role: 'assistant', content: response }])
-          }
-        } catch (err) {
-          console.error('Failed to send pending message:', err)
-          setMessages(prev => [...prev, { 
-            role: 'assistant', 
-            content: 'Sorry, something went wrong. Please try again.' 
-          }])
-        } finally {
-          setIsMessagePending(false)
-        }
-      }
-    }
-
-    sendPendingMessage()
-  }, [isXmtpInitialized, isAuthenticated, isMessagePending])
-
   const handleSendMessage = async (message: string) => {
     if (!message.trim()) return
     
     try {
-      // Add message to UI immediately
-      setMessages(prev => [...prev, { role: 'user', content: message }])
-      
       // Handle auth if needed
       if (!isAuthenticated) {
         await login()
@@ -120,14 +63,9 @@ export default function Home() {
       }
 
       // Send message and wait for response
-      const response = await sendMessage(message)
-      setMessages(prev => [...prev, { role: 'assistant', content: response }])
+      await sendMessage(message)
     } catch (err) {
       console.error('Failed to send message:', err)
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, something went wrong. Please try again.' 
-      }])
     }
   }
 
@@ -140,6 +78,18 @@ export default function Home() {
 
   // Show loading state while auth or XMTP is initializing
   const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
+
+  // Don't show anything until we're ready
+  if (!isAuthenticated && isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loading />
+          <p className="text-neutral-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col">
@@ -165,18 +115,12 @@ export default function Home() {
           <div className="space-y-4 pb-20">
             {isInitializing ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <l-ring
-                  size="40"
-                  stroke="3"
-                  bg-opacity="0"
-                  speed="2"
-                  color="white"
-                />
+                <Loading />
                 <p className="text-neutral-400 mt-4">
                   {isXmtpLoading ? 'Initializing secure chat...' : 'Loading...'}
                 </p>
               </div>
-            ) : !isAuthenticated && messages.length === 0 ? (
+            ) : !isAuthenticated && xmtpMessages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <p className="text-lg text-white mb-4">
                   {currentLocale === 'en' 
@@ -194,18 +138,40 @@ export default function Home() {
               </div>
             ) : (
               <>
-                {messages.map((message, i) => (
-                  <div
-                    key={i}
-                    className={`p-4 rounded-lg ${
-                      message.role === 'user'
-                        ? 'bg-blue-500/20 ml-12'
-                        : 'bg-neutral-800 mr-12'
-                    }`}
-                  >
-                    {message.content}
-                  </div>
-                ))}
+                {xmtpMessages.map((message, i) => {
+                  // Try to parse JSON content if it's a JSON string
+                  let displayContent = message.content
+                  try {
+                    const parsed = JSON.parse(message.content)
+                    // If it's a question answer, format it nicely
+                    if (parsed.uuid && parsed.selectedAnswer) {
+                      displayContent = `Selected answer: ${parsed.selectedAnswer}`
+                    } else if (parsed.isCorrect !== undefined && parsed.explanation) {
+                      displayContent = parsed.explanation
+                    } else {
+                      // For other JSON objects, stringify them nicely
+                      displayContent = JSON.stringify(parsed, null, 2)
+                    }
+                  } catch (e) {
+                    // If it's not JSON, use the content as is
+                    displayContent = message.content
+                  }
+
+                  return (
+                    <div
+                      key={i}
+                      className={`p-4 rounded-lg ${
+                        message.role === 'user'
+                          ? 'bg-blue-500/20 ml-12'
+                          : 'bg-neutral-800 mr-12'
+                      }`}
+                    >
+                      <pre className="whitespace-pre-wrap font-sans">
+                        {displayContent}
+                      </pre>
+                    </div>
+                  )
+                })}
               </>
             )}
           </div>
@@ -309,13 +275,7 @@ export default function Home() {
               }}
             >
               {isInitializing ? (
-                <l-ring
-                  size="20"
-                  stroke="2"
-                  bg-opacity="0"
-                  speed="2"
-                  color="white"
-                />
+                <Loading size={20} color="#ffffff" />
               ) : (
                 <SendHorizontalIcon className="h-5 w-5" />
               )}

@@ -31,6 +31,11 @@ interface QuestionAnswer {
   selectedAnswer: string
 }
 
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export function useXmtp() {
   const { ready: privyReady, authenticated, user } = usePrivy()
   const { ready: walletsReady, wallets } = useWallets()
@@ -39,36 +44,55 @@ export function useXmtp() {
   const [client, setClient] = useState<Client | null>(null)
   const [isInitializing, setIsInitializing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasInitialized, setHasInitialized] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([])
+
+  // Load message history when client is initialized
+  const loadMessageHistory = async (xmtp: Client) => {
+    try {
+      console.log('Loading message history...')
+      const conversation = await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
+      const history = await conversation.messages()
+      
+      // Convert XMTP messages to our format with proper typing
+      const formattedMessages = history
+        .filter(msg => {
+          // Filter out system messages that have these properties
+          const isSystemMessage = typeof msg.content === 'object' && 
+            'initiatedByInboxId' in msg.content &&
+            'addedInboxes' in msg.content &&
+            'removedInboxes' in msg.content &&
+            'metadataFieldChanges' in msg.content
+          return !isSystemMessage
+        })
+        .map(msg => ({
+          role: msg.senderInboxId === xmtp.inboxId ? 'user' as const : 'assistant' as const,
+          content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+        }))
+
+      console.log('Loaded messages:', formattedMessages)
+      setMessages(formattedMessages)
+    } catch (err) {
+      console.error('Failed to load message history:', err)
+      setError('Failed to load message history')
+    }
+  }
 
   // Initialize XMTP client when wallet is connected
   useEffect(() => {
     const initXmtp = async () => {
-      // Log all available wallets and their details
-      console.log('Available wallets:', wallets.map(w => ({
-        type: w.walletClientType,
-        address: w.address,
-        chainId: w.chainId
-      })))
+      // Skip if already initialized or initializing
+      if (hasInitialized || isInitializing || client) {
+        return
+      }
 
-      console.log('XMTP Init State:', {
-        privyReady,
-        walletsReady,
-        authenticated,
-        isInitializing,
-        hasClient: !!client,
-        walletsCount: wallets.length,
-        userId: user?.id,
-        userWallets: user?.linkedAccounts
-      })
+      // Skip if not ready
+      if (!privyReady || !authenticated) {
+        return
+      }
 
-      if (!privyReady || !walletsReady || !authenticated || isInitializing || client) {
-        console.log('XMTP Init Skipped:', {
-          notPrivyReady: !privyReady,
-          notWalletsReady: !walletsReady,
-          notAuthenticated: !authenticated,
-          isInitializing,
-          hasExistingClient: !!client
-        })
+      // Skip if no wallets
+      if (!walletsReady || wallets.length === 0) {
         return
       }
 
@@ -80,25 +104,11 @@ export function useXmtp() {
         const availableWallet = wallets.find(w => w.address)
         
         if (!availableWallet?.address) {
-          console.log('No wallet found with address. Wallet details:', {
-            wallets: wallets.map(w => ({
-              type: w.walletClientType,
-              address: w.address
-            })),
-            userLinkedAccounts: user?.linkedAccounts
-          })
           throw new Error('No wallet available with an address')
         }
 
-        console.log('Creating XMTP signer with wallet:', {
-          type: availableWallet.walletClientType,
-          address: availableWallet.address,
-          chainId: availableWallet.chainId
-        })
-
         // Get the provider from the wallet
         const provider = await availableWallet.getEthereumProvider()
-        console.log('Got Ethereum provider')
         
         // Create a signer interface that uses the provider
         const signer: Signer = {
@@ -107,65 +117,44 @@ export function useXmtp() {
             const messageStr = message instanceof Uint8Array 
               ? new TextDecoder().decode(message)
               : message
-
-            console.log('Signing XMTP message:', {
-              message: messageStr,
-              address: availableWallet.address
+            
+            const signature = await provider.request({
+              method: 'personal_sign',
+              params: [messageStr, availableWallet.address]
             })
             
-            try {
-              // Use the provider to sign the message
-              const signature = await provider.request({
-                method: 'personal_sign',
-                params: [messageStr, availableWallet.address]
-              })
-              console.log('Got signature:', signature)
-              
-              // Convert signature to bytes
-              const hexString = signature.replace('0x', '')
-              const bytes = new Uint8Array(hexString.length / 2)
-              for (let i = 0; i < bytes.length; i++) {
-                bytes[i] = parseInt(hexString.slice(i * 2, i * 2 + 2), 16)
-              }
-              return bytes
-            } catch (signError) {
-              console.error('Error signing message:', signError)
-              throw signError
+            // Convert signature to bytes
+            const hexString = signature.replace('0x', '')
+            const bytes = new Uint8Array(hexString.length / 2)
+            for (let i = 0; i < bytes.length; i++) {
+              bytes[i] = parseInt(hexString.slice(i * 2, i * 2 + 2), 16)
             }
+            return bytes
           }
         }
         
         // Create XMTP client
-        console.log('Creating XMTP client...')
         const xmtp = await Client.create(
           signer,
           window.crypto.getRandomValues(new Uint8Array(32)),
           { env: 'dev' }
         )
 
-        console.log('XMTP client created successfully')
         setClient(xmtp)
+        setHasInitialized(true)
 
-        // Initialize a test conversation without checking canMessage
+        // Load message history
+        await loadMessageHistory(xmtp)
+
+        // Initialize a test conversation
         try {
-          console.log('Creating test conversation...')
-          const conversation = await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
-          console.log('Conversation created successfully')
+          await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
         } catch (convErr) {
           console.error('Failed to create conversation:', convErr)
-          // Don't throw here - just log the error
-          // The conversation may still work even if initial creation fails
         }
       } catch (err) {
         console.error('Failed to initialize XMTP:', err)
-        if (err instanceof Error) {
-          console.error('Error details:', {
-            message: err.message,
-            stack: err.stack,
-            cause: err.cause
-          })
-        }
-        setError('Failed to initialize messaging')
+        setError(err instanceof Error ? err.message : 'Failed to initialize messaging')
         setClient(null)
       } finally {
         setIsInitializing(false)
@@ -173,7 +162,7 @@ export function useXmtp() {
     }
 
     initXmtp()
-  }, [privyReady, walletsReady, authenticated, wallets, user?.id])
+  }, [privyReady, walletsReady, authenticated, wallets, hasInitialized, isInitializing, client])
 
   // Function to send answer to tutor bot
   const sendAnswer = async (questionAnswer: QuestionAnswer) => {
@@ -194,8 +183,11 @@ export function useXmtp() {
       await conversation.send(message)
       console.log('Message sent successfully')
 
+      // Add message to local state
+      setMessages(prev => [...prev, { role: 'user', content: message }])
+
       // Wait for bot response (with timeout)
-      let botResponse = null
+      let botResponse: { isCorrect: boolean; explanation: string } | null = null
       const startTime = Date.now()
       const timeout = 30000 // Increase timeout to 30 seconds
 
@@ -211,9 +203,12 @@ export function useXmtp() {
 
         // Look for a response from the tutor bot
         for (const msg of messages) {
-          // Skip our own messages
-          if (msg.senderInboxId === client.inboxId) {
-            console.log('Skipping own message:', msg.content)
+          // Skip our own messages and system messages
+          if (msg.senderInboxId === client.inboxId || 
+              (typeof msg.content === 'object' && 
+               'initiatedByInboxId' in msg.content &&
+               'addedInboxes' in msg.content)) {
+            console.log('Skipping message:', msg.content)
             continue
           }
 
@@ -223,10 +218,15 @@ export function useXmtp() {
               sender: msg.senderInboxId
             })
 
-            const response = JSON.parse(msg.content)
+            const response = JSON.parse(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))
             if (response.uuid === questionAnswer.uuid) {
               console.log('Found matching response:', response)
               botResponse = response
+              // Add bot response to local state
+              setMessages(prev => [...prev, { 
+                role: 'assistant', 
+                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+              }])
               break
             } else {
               console.log('UUID mismatch:', {
@@ -287,8 +287,11 @@ export function useXmtp() {
       await conversation.send(message)
       console.log('Message sent successfully')
 
+      // Add message to local state
+      setMessages(prev => [...prev, { role: 'user', content: message }])
+
       // Wait for bot response (with timeout)
-      let botResponse = null
+      let botResponse: string | null = null
       const startTime = Date.now()
       const timeout = 30000 // 30 seconds timeout
 
@@ -304,14 +307,20 @@ export function useXmtp() {
 
         // Look for a response from the tutor bot
         for (const msg of messages) {
-          // Skip our own messages
-          if (msg.senderInboxId === client.inboxId) {
-            console.log('Skipping own message:', msg.content)
+          // Skip our own messages and system messages
+          if (msg.senderInboxId === client.inboxId || 
+              (typeof msg.content === 'object' && 
+               'initiatedByInboxId' in msg.content &&
+               'addedInboxes' in msg.content)) {
+            console.log('Skipping message:', msg.content)
             continue
           }
 
           // Return the first message from the bot that isn't our own
-          botResponse = msg.content
+          const messageContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          botResponse = messageContent
+          // Add bot response to local state
+          setMessages(prev => [...prev, { role: 'assistant', content: messageContent }])
           break
         }
 
@@ -336,8 +345,9 @@ export function useXmtp() {
 
   return {
     isInitialized: !!client,
-    isLoading: isInitializing,
+    isLoading: isInitializing || (!hasInitialized && (privyReady && authenticated && walletsReady && wallets.length > 0)),
     error,
+    messages,
     sendAnswer,
     sendMessage
   }
