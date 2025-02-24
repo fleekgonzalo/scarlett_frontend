@@ -1,412 +1,282 @@
 'use client'
 
+import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { use } from 'react'
-import { useLanguageStore } from '@/stores/languageStore'
 import { TablelandClient, type Song } from '@/services/tableland'
-import { getIPFSUrl } from '@/lib/utils'
-import { BackButton } from '@/components/ui/back-button'
-import { Button } from '@/components/ui/button'
-import { AuthGuard } from '@/components/AuthGuard'
+import { useLanguageStore } from '@/stores/languageStore'
 import { useXmtp } from '@/hooks/useXmtp'
-
-interface Option {
-  a: string
-  b: string
-  c: string
-  d: string
-}
+import { useAuth } from '@/hooks/useAuth'
+import { Button } from '@/components/ui/button'
+import { Loading } from '@/components/ui/loading'
+import Link from 'next/link'
 
 interface Question {
-  uuid?: string
+  uuid: string
   question: string
-  options: Option
-  answer: string
-  explanation: string
-  type?: 'multiple_choice' | 'fill_in_blank' // Extensible for future types
-}
-
-interface QuestionSet {
-  questions: Question[]
-  metadata?: {
-    difficulty: string
-    targetLanguage: string
-    sourceLanguage: string
+  options: {
+    a: string
+    b: string
+    c: string
+    d: string
   }
+  audio_cid: string
 }
 
-export default function QuestionsPage({ params: paramsPromise }: { params: Promise<{ id: string, locale: string }> }) {
-  const params = use(paramsPromise)
+interface QuestionAnswer {
+  uuid: string
+  selectedAnswer: string
+  songId: string
+}
+
+export default function QuestionsPage() {
+  const params = useParams()
+  const songId = params?.id as string
+  const { isLearningChinese } = useLanguageStore()
   const [song, setSong] = useState<Song | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
-  const [isAnswered, setIsAnswered] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { currentLocale, isLearningChinese } = useLanguageStore()
-  const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, sendAnswer } = useXmtp()
-  const [explanation, setExplanation] = useState<string | null>(null)
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
-  const [retryCount, setRetryCount] = useState(0)
-  const [tablelandRetryCount, setTablelandRetryCount] = useState(0)
-  const MAX_RETRIES = 3
-  const RETRY_DELAY = 2000
+  const [explanation, setExplanation] = useState<string | null>(null)
+  
+  const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
+  const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
+
+  // Show loading state while auth or XMTP is initializing
+  const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
 
   useEffect(() => {
-    const fetchSongAndQuestions = async () => {
-      // Don't start loading if XMTP is still initializing
-      if (isXmtpLoading) {
-        return
-      }
-
-      // If not initialized and we haven't exceeded retries, wait and try again
-      if (!isXmtpInitialized && retryCount < MAX_RETRIES) {
-        console.log(`XMTP not initialized, retrying... (${retryCount + 1}/${MAX_RETRIES})`)
-        setRetryCount(prev => prev + 1)
-        setTimeout(() => {
-          // Force re-render to trigger another attempt
-          setIsLoading(prev => !prev)
-        }, RETRY_DELAY)
-        return
-      }
-
-      // If we've exceeded retries and still not initialized, show error
-      if (!isXmtpInitialized) {
-        console.error('Failed to initialize XMTP after retries')
-        setError('Failed to initialize messaging. Please refresh the page and try again.')
-        return
-      }
-
+    const fetchData = async () => {
+      if (!songId) return
+      
       try {
         setIsLoading(true)
         setError(null)
-        
-        // Log initial state
-        console.log('Starting to fetch song and questions:', {
-          songId: params.id,
-          isLearningChinese,
-          xmtpState: {
-            isInitialized: isXmtpInitialized,
-            isLoading: isXmtpLoading,
-            error: xmtpError,
-            retryCount
-          }
-        })
-        
-        // Fetch song data with retries
-        let data = null
-        let tablelandError = null
-        
-        while (tablelandRetryCount < MAX_RETRIES) {
-          try {
-            const tableland = TablelandClient.getInstance()
-            data = await tableland.getSong(Number(params.id))
-            if (data) break
-            
-            console.log(`Tableland attempt ${tablelandRetryCount + 1}/${MAX_RETRIES} failed, retrying...`)
-            setTablelandRetryCount(prev => prev + 1)
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
-          } catch (err) {
-            tablelandError = err
-            console.error('Tableland error:', err)
-            setTablelandRetryCount(prev => prev + 1)
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
-          }
-        }
 
-        if (!data) {
-          throw new Error(tablelandError ? `Failed to fetch song: ${tablelandError}` : 'Song not found')
-        }
+        // Fetch song data
+        const tableland = TablelandClient.getInstance()
+        const songData = await tableland.getSong(Number(songId))
+        setSong(songData)
 
-        console.log('Song data:', data)
-        setSong(data)
-
-        // Determine which question set to load based on learning direction
-        const questionsCid = isLearningChinese ? data.questions_cid_1 : data.questions_cid_2
-        console.log('Selected questions CID:', questionsCid, { isLearningChinese })
-        
-        if (!questionsCid) {
-          setError('No questions available for this song')
-          return
-        }
-
-        // Fetch questions from IPFS
-        console.log('Fetching questions from IPFS:', questionsCid)
-        const response = await fetch(getIPFSUrl(questionsCid))
-        console.log('Questions response status:', response.status)
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch questions: ${response.status}`)
-        }
-        
-        const questionsText = await response.text()
-        console.log('Raw questions response:', questionsText)
-        
-        try {
-          const questionsData = JSON.parse(questionsText)
-          console.log('Parsed questions data:', questionsData)
+        // Only fetch questions if we're authenticated and XMTP is initialized
+        if (isAuthenticated && isXmtpInitialized && songData) {
+          const questionsCid = isLearningChinese ? songData.questions_cid_1 : songData.questions_cid_2
+          const response = await fetch(`https://premium.aiozpin.network/ipfs/${questionsCid}`)
           
-          // Check if questions is an array
-          if (!Array.isArray(questionsData)) {
-            console.error('Questions data is not an array:', questionsData)
-            throw new Error('Invalid questions format: expected an array')
+          if (!response.ok) {
+            throw new Error('Failed to fetch questions')
           }
           
-          // Map questions to add UUIDs if they don't exist
-          const questionsWithIds = questionsData.map((q: Question, i: number) => ({
-            ...q,
-            uuid: q.uuid || `temp-${i}` // Use temporary UUIDs for now
-          }))
-          
-          console.log('Processed questions:', questionsWithIds)
-          setQuestions(questionsWithIds)
-        } catch (parseError) {
-          console.error('Error parsing questions:', parseError)
-          const errorMessage = typeof parseError === 'object' && parseError !== null && 'message' in parseError
-            ? parseError.message
-            : 'Unknown error'
-          setError(`Failed to parse questions data: ${errorMessage}`)
+          const data = await response.json()
+          setQuestions(data)
         }
-      } catch (error) {
-        console.error('Error fetching song/questions:', error)
-        setError(
-          error instanceof Error 
-            ? error.message 
-            : typeof error === 'object' && error !== null && 'message' in error
-              ? String((error as { message: unknown }).message)
-              : 'Failed to load content'
-        )
+      } catch (err) {
+        console.error('Error fetching data:', err)
+        setError('Failed to load content')
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchSongAndQuestions()
-  }, [params.id, isLearningChinese, isXmtpLoading, isXmtpInitialized, xmtpError, retryCount])
+    fetchData()
+  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized])
 
   const handleAnswer = async (answer: string) => {
+    if (isValidating || !questions[currentQuestionIndex] || !song) return
+
     setSelectedAnswer(answer)
-    setIsAnswered(true)
     setIsValidating(true)
-    setExplanation('Sending to tutor...')
+    setExplanation('Checking your answer...')
 
     try {
-      if (!isXmtpInitialized) {
-        setError('Please wait for messaging to initialize')
-        return
-      }
-
-      const currentQuestion = questions[currentQuestionIndex]
       const response = await sendAnswer({
-        uuid: currentQuestion.uuid || `temp-${currentQuestionIndex}`,
-        selectedAnswer: answer
+        uuid: questions[currentQuestionIndex].uuid,
+        selectedAnswer: answer,
+        songId: song.id
       })
 
       setExplanation(response.explanation)
+
+      // Wait a bit before moving to next question
+      setTimeout(() => {
+        if (currentQuestionIndex < questions.length - 1) {
+          setCurrentQuestionIndex(prev => prev + 1)
+          setSelectedAnswer(null)
+          setExplanation(null)
+        }
+      }, 2000)
     } catch (err) {
       console.error('Failed to validate answer:', err)
-      setError('Failed to validate answer with tutor')
-      setExplanation('Could not get response from tutor')
+      setError('Failed to check answer')
+      setExplanation('Could not validate answer')
     } finally {
       setIsValidating(false)
     }
   }
 
-  const handleNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1)
-      setSelectedAnswer(null)
-      setIsAnswered(false)
-      setExplanation(null)
-    }
-  }
-
-  const handleRetry = () => {
-    setRetryCount(0)
-    setTablelandRetryCount(0)
-    setError(null)
-    setIsLoading(true)
-    window.location.reload()
-  }
-
-  if (isXmtpLoading || (!isXmtpInitialized && retryCount < MAX_RETRIES)) {
+  if (isInitializing) {
     return (
-      <AuthGuard>
-        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-          <div className="text-white text-center">
-            <div className="mb-4">Initializing messaging...</div>
-            <div className="text-sm text-neutral-400">
-              {retryCount > 0 ? `Retry attempt ${retryCount}/${MAX_RETRIES}...` : 'Please wait...'}
-            </div>
-          </div>
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loading size={32} color="#3B82F6" />
+          <p className="text-neutral-400">
+            {isXmtpLoading ? 'Initializing secure chat...' : 'Loading...'}
+          </p>
         </div>
-      </AuthGuard>
+      </div>
     )
   }
 
-  if (xmtpError || (!isXmtpInitialized && retryCount >= MAX_RETRIES)) {
+  if (!isAuthenticated) {
     return (
-      <AuthGuard>
-        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-red-400 mb-4">
-              {xmtpError ? `Failed to initialize messaging: ${String(xmtpError)}` : 
-               'Failed to initialize messaging after multiple attempts'}
-            </p>
-            <Button 
-              onClick={handleRetry}
-              variant="ghost"
-              className="text-white hover:bg-neutral-800"
+      <div className="min-h-screen bg-neutral-900">
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          {/* Back button */}
+          <div className="mb-8">
+            <Link
+              href={`/${params?.locale || 'en'}/songs/${songId}`}
+              className="text-neutral-400 hover:text-white transition-colors"
             >
-              {currentLocale === 'en' ? 'Try Again' : '重试'}
+              ← Back to Song
+            </Link>
+          </div>
+
+          <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg bg-neutral-800">
+            <p className="text-lg text-white mb-4">
+              Sign in to start learning with this song
+            </p>
+            <Button
+              onClick={login}
+              size="lg"
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Sign In
             </Button>
           </div>
         </div>
-      </AuthGuard>
+      </div>
     )
   }
 
   if (isLoading) {
     return (
-      <AuthGuard>
-        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-          <div className="text-white text-center">
-            <div className="mb-4">Loading questions...</div>
-            {tablelandRetryCount > 0 && (
-              <div className="text-sm text-neutral-400">
-                Retrying to fetch data... ({tablelandRetryCount}/{MAX_RETRIES})
-              </div>
-            )}
-          </div>
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loading size={32} color="#3B82F6" />
+          <p className="text-neutral-400">Loading questions...</p>
         </div>
-      </AuthGuard>
+      </div>
     )
   }
 
-  if (error || !song || questions.length === 0) {
+  if (error || !song || !questions.length) {
     return (
-      <AuthGuard>
-        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-          <div className="text-center">
+      <div className="min-h-screen bg-neutral-900">
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          {/* Back button */}
+          <div className="mb-8">
+            <Link
+              href={`/${params?.locale || 'en'}/songs/${songId}`}
+              className="text-neutral-400 hover:text-white transition-colors"
+            >
+              ← Back to Song
+            </Link>
+          </div>
+
+          <div className="text-center py-12">
             <p className="text-red-400 mb-4">{error || 'No questions available'}</p>
             <Button 
               onClick={() => window.location.reload()}
-              variant="ghost"
-              className="text-white hover:bg-neutral-800"
+              variant="outline"
             >
-              {currentLocale === 'en' ? 'Try Again' : '重试'}
+              Try Again
             </Button>
           </div>
         </div>
-      </AuthGuard>
+      </div>
     )
   }
 
   const currentQuestion = questions[currentQuestionIndex]
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen bg-neutral-900 flex flex-col">
-        <BackButton />
-        
-        <div className="flex-1 p-6 pt-20">
-          <div className="max-w-2xl mx-auto">
-            {/* Progress indicator */}
-            <div className="mb-8">
-              <div className="flex justify-between items-center text-white mb-2">
-                <span>Question {currentQuestionIndex + 1} of {questions.length}</span>
-                <span>{Math.round((currentQuestionIndex + 1) / questions.length * 100)}%</span>
-              </div>
-              <div className="h-2 bg-neutral-800 rounded-full">
-                <div 
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                  style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
-                />
-              </div>
-            </div>
+    <div className="min-h-screen bg-neutral-900">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Back button */}
+        <div className="mb-8">
+          <Link
+            href={`/${params?.locale || 'en'}/songs/${songId}`}
+            className="text-neutral-400 hover:text-white transition-colors"
+          >
+            ← Back to Song
+          </Link>
+        </div>
 
-            {/* Question */}
-            <div className="space-y-8">
-              <h2 className="text-xl text-white">{currentQuestion.question}</h2>
-              
-              {/* Options */}
-              <div className="space-y-4">
-                {Object.entries(currentQuestion.options).map(([key, value]) => (
-                  <button
-                    key={key}
-                    onClick={() => !isAnswered && handleAnswer(key)}
-                    className={`w-full p-4 rounded-lg border text-left transition-colors ${
-                      isAnswered
-                        ? key === currentQuestion.answer
-                          ? 'bg-green-500/20 border-green-500 text-white'
-                          : key === selectedAnswer
-                          ? 'bg-red-500/20 border-red-500 text-white'
-                          : 'bg-neutral-800/50 border-neutral-700 text-neutral-400'
-                        : selectedAnswer === key
-                        ? 'bg-blue-500/20 border-blue-500 text-white'
-                        : 'bg-neutral-800 border-neutral-700 text-white hover:border-blue-500'
-                    }`}
-                    disabled={isAnswered}
-                  >
-                    <div className="flex items-center">
-                      <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center mr-3">
-                        {key.toUpperCase()}
-                      </span>
-                      {value}
-                    </div>
-                  </button>
-                ))}
-              </div>
+        {/* Progress bar */}
+        <div className="mb-8">
+          <div className="flex justify-between text-sm text-neutral-400 mb-2">
+            <span>Question {currentQuestionIndex + 1} of {questions.length}</span>
+            <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
+          </div>
+          <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-blue-600 transition-all duration-300"
+              style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
+            />
+          </div>
+        </div>
 
-              {/* Explanation */}
-              {isAnswered && (
-                <div className={`p-4 rounded-lg ${
-                  selectedAnswer === currentQuestion.answer
-                    ? 'bg-green-500/20 border border-green-500'
-                    : 'bg-red-500/20 border border-red-500'
-                }`}>
-                  <div className="text-white">
-                    {isValidating ? (
-                      <div className="flex items-center space-x-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                        <span>{explanation}</span>
-                      </div>
-                    ) : (
-                      <p>{explanation || 'Waiting for tutor response...'}</p>
-                    )}
+        {/* Current Question */}
+        <div className="space-y-8">
+          <div className="p-6 rounded-lg bg-neutral-800">
+            <h3 className="text-xl font-medium text-white mb-6">
+              {currentQuestion.question}
+            </h3>
+            
+            <div className="space-y-4">
+              {Object.entries(currentQuestion.options).map(([key, value]) => (
+                <button
+                  key={key}
+                  onClick={() => !selectedAnswer && !isValidating && handleAnswer(key)}
+                  disabled={!!selectedAnswer || isValidating}
+                  className={`w-full p-4 rounded-lg text-left transition-colors ${
+                    selectedAnswer === key
+                      ? 'bg-blue-600 text-white'
+                      : selectedAnswer
+                      ? 'bg-neutral-700 text-neutral-400'
+                      : 'bg-neutral-700 hover:bg-neutral-600 text-white'
+                  }`}
+                >
+                  <div className="flex items-center">
+                    <span className="w-8 h-8 rounded-full border border-current flex items-center justify-center mr-3">
+                      {key.toUpperCase()}
+                    </span>
+                    {value}
                   </div>
-                  {(error || xmtpError) && (
-                    <p className="text-red-400 mt-2">
-                      {error || (typeof xmtpError === 'string' ? xmtpError : xmtpError?.message) || 'An error occurred'}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Next button */}
-              {isAnswered && currentQuestionIndex < questions.length - 1 && (
-                <Button
-                  onClick={handleNext}
-                  className="w-full"
-                >
-                  Next Question
-                </Button>
-              )}
-
-              {/* Complete button */}
-              {isAnswered && currentQuestionIndex === questions.length - 1 && (
-                <Button
-                  onClick={() => window.location.href = `/${currentLocale}/songs/${params.id}/questions/complete`}
-                  className="w-full"
-                >
-                  Complete
-                </Button>
-              )}
+                </button>
+              ))}
             </div>
+
+            {/* Explanation */}
+            {explanation && (
+              <div className={`mt-6 p-4 rounded-lg ${
+                isValidating 
+                  ? 'bg-neutral-700' 
+                  : selectedAnswer 
+                  ? 'bg-blue-600/20 border border-blue-600' 
+                  : 'bg-neutral-700'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {isValidating && <Loading size={20} color="#3B82F6" />}
+                  <p className="text-white">{explanation}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </AuthGuard>
+    </div>
   )
 } 

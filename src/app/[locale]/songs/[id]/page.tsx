@@ -8,8 +8,10 @@ import { BackButton } from '@/components/ui/back-button'
 import { Button } from '@/components/ui/button'
 import { Play } from 'lucide-react'
 import Link from 'next/link'
+import { useParams } from 'next/navigation'
 
-export default function SongPage({ params }: { params: { id: string, locale: string } }) {
+export default function SongPage() {
+  const params = useParams()
   const [song, setSong] = useState<Song | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -71,7 +73,7 @@ export default function SongPage({ params }: { params: { id: string, locale: str
         >
           <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/25 to-black/75">
             <div className="absolute bottom-0 left-0 p-6 text-white">
-              <h1 className="text-4xl font-bold ">
+              <h1 className="text-4xl font-bold">
                 {isLearningChinese ? song.song_title : song.song_title_translated}
               </h1>
               <p className="text-2xl text-white/80 mb-10">
@@ -94,7 +96,7 @@ export default function SongPage({ params }: { params: { id: string, locale: str
 
       {/* Stats section - pushed down to make room for play button */}
       <div className="mt-16 grid grid-cols-3 gap-4 px-6">
-        <div className="space-y-1 text-center  bg-neutral-800 p-3 rounded-lg">
+        <div className="space-y-1 text-center bg-neutral-800 p-3 rounded-lg">
           <div className="text-2xl font-bold text-white">
             {getCEFRLevel(song.cefr_level)}
           </div>

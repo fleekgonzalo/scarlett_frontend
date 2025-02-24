@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Client, type Signer } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0x39ba6e2959cBBcbd5D18D02777ddD2E59aA7E8B7'
+const TUTOR_BOT_ADDRESS = '0x5Ec1b334710D1E712D06E9F80c1C548e91Bb9F1B'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
@@ -28,6 +28,7 @@ const storeKeys = (walletAddress: string, keys: Uint8Array) => {
 interface QuestionAnswer {
   uuid: string
   selectedAnswer: string
+  songId: string
 }
 
 interface Message {
