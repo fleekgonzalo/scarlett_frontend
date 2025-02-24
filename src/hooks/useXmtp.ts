@@ -5,7 +5,7 @@ import { Client, type Signer } from '@xmtp/browser-sdk'
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0x70b499c24Ff19FeBb8853B5F059e0506b4ce8905'
+const TUTOR_BOT_ADDRESS = '0x39ba6e2959cBBcbd5D18D02777ddD2E59aA7E8B7'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
@@ -197,41 +197,64 @@ export function useXmtp() {
       // Wait for bot response (with timeout)
       let botResponse = null
       const startTime = Date.now()
-      const timeout = 10000 // 10 seconds timeout
+      const timeout = 30000 // Increase timeout to 30 seconds
 
       console.log('Waiting for bot response...')
       while (!botResponse && Date.now() - startTime < timeout) {
         // Get latest messages
         const messages = await conversation.messages()
-        const latestMessage = messages[messages.length - 1]
-        console.log('Latest message:', latestMessage)
+        console.log('All messages:', messages.map(m => ({
+          content: m.content,
+          sender: m.senderInboxId,
+          id: m.id
+        })))
 
-        // Check if we have a response after our message
-        if (latestMessage && latestMessage.content) {
+        // Look for a response from the tutor bot
+        for (const msg of messages) {
+          // Skip our own messages
+          if (msg.senderInboxId === client.inboxId) {
+            console.log('Skipping own message:', msg.content)
+            continue
+          }
+
           try {
-            const response = JSON.parse(latestMessage.content)
-            console.log('Parsed response:', response)
+            console.log('Checking message:', {
+              content: msg.content,
+              sender: msg.senderInboxId
+            })
+
+            const response = JSON.parse(msg.content)
             if (response.uuid === questionAnswer.uuid) {
+              console.log('Found matching response:', response)
               botResponse = response
               break
+            } else {
+              console.log('UUID mismatch:', {
+                expected: questionAnswer.uuid,
+                received: response.uuid
+              })
             }
           } catch (e) {
-            console.log('Not a valid JSON response or not the response we are looking for')
+            console.log('Not a valid JSON response:', msg.content)
             continue
           }
         }
 
-        // Wait a bit before checking again
-        await new Promise(resolve => setTimeout(resolve, 500))
+        if (!botResponse) {
+          // Wait a bit before checking again
+          console.log('No matching response found, waiting...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
       }
 
       if (!botResponse) {
+        console.error('No response received within timeout')
         throw new Error('No response received from tutor')
       }
 
       return {
         isCorrect: botResponse.isCorrect,
-        explanation: botResponse.explanation
+        explanation: botResponse.explanation || 'No explanation provided'
       }
     } catch (err) {
       console.error('Failed to send answer:', err)
@@ -247,10 +270,75 @@ export function useXmtp() {
     }
   }
 
+  // Function to send a general message
+  const sendMessage = async (message: string): Promise<string> => {
+    if (!client) {
+      console.error('Cannot send message: XMTP client not initialized')
+      throw new Error('XMTP client not initialized')
+    }
+
+    try {
+      console.log('Creating conversation with tutor bot...')
+      const conversation = await client.conversations.newDm(TUTOR_BOT_ADDRESS)
+      console.log('Conversation created/loaded')
+
+      // Send the message
+      console.log('Sending message:', message)
+      await conversation.send(message)
+      console.log('Message sent successfully')
+
+      // Wait for bot response (with timeout)
+      let botResponse = null
+      const startTime = Date.now()
+      const timeout = 30000 // 30 seconds timeout
+
+      console.log('Waiting for bot response...')
+      while (!botResponse && Date.now() - startTime < timeout) {
+        // Get latest messages
+        const messages = await conversation.messages()
+        console.log('All messages:', messages.map(m => ({
+          content: m.content,
+          sender: m.senderInboxId,
+          id: m.id
+        })))
+
+        // Look for a response from the tutor bot
+        for (const msg of messages) {
+          // Skip our own messages
+          if (msg.senderInboxId === client.inboxId) {
+            console.log('Skipping own message:', msg.content)
+            continue
+          }
+
+          // Return the first message from the bot that isn't our own
+          botResponse = msg.content
+          break
+        }
+
+        if (!botResponse) {
+          // Wait a bit before checking again
+          console.log('No response found, waiting...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+
+      if (!botResponse) {
+        console.error('No response received within timeout')
+        throw new Error('No response received from tutor')
+      }
+
+      return botResponse
+    } catch (err) {
+      console.error('Failed to send message:', err)
+      throw err
+    }
+  }
+
   return {
     isInitialized: !!client,
     isLoading: isInitializing,
     error,
-    sendAnswer
+    sendAnswer,
+    sendMessage
   }
 } 

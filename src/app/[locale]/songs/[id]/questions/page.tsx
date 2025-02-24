@@ -48,28 +48,81 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, error: xmtpError, sendAnswer } = useXmtp()
   const [explanation, setExplanation] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
+  const [tablelandRetryCount, setTablelandRetryCount] = useState(0)
+  const MAX_RETRIES = 3
+  const RETRY_DELAY = 2000
 
   useEffect(() => {
     const fetchSongAndQuestions = async () => {
+      // Don't start loading if XMTP is still initializing
+      if (isXmtpLoading) {
+        return
+      }
+
+      // If not initialized and we haven't exceeded retries, wait and try again
+      if (!isXmtpInitialized && retryCount < MAX_RETRIES) {
+        console.log(`XMTP not initialized, retrying... (${retryCount + 1}/${MAX_RETRIES})`)
+        setRetryCount(prev => prev + 1)
+        setTimeout(() => {
+          // Force re-render to trigger another attempt
+          setIsLoading(prev => !prev)
+        }, RETRY_DELAY)
+        return
+      }
+
+      // If we've exceeded retries and still not initialized, show error
+      if (!isXmtpInitialized) {
+        console.error('Failed to initialize XMTP after retries')
+        setError('Failed to initialize messaging. Please refresh the page and try again.')
+        return
+      }
+
       try {
         setIsLoading(true)
         setError(null)
         
-        // Fetch song data
-        const tableland = TablelandClient.getInstance()
-        const data = await tableland.getSong(Number(params.id))
+        // Log initial state
+        console.log('Starting to fetch song and questions:', {
+          songId: params.id,
+          isLearningChinese,
+          xmtpState: {
+            isInitialized: isXmtpInitialized,
+            isLoading: isXmtpLoading,
+            error: xmtpError,
+            retryCount
+          }
+        })
+        
+        // Fetch song data with retries
+        let data = null
+        let tablelandError = null
+        
+        while (tablelandRetryCount < MAX_RETRIES) {
+          try {
+            const tableland = TablelandClient.getInstance()
+            data = await tableland.getSong(Number(params.id))
+            if (data) break
+            
+            console.log(`Tableland attempt ${tablelandRetryCount + 1}/${MAX_RETRIES} failed, retrying...`)
+            setTablelandRetryCount(prev => prev + 1)
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+          } catch (err) {
+            tablelandError = err
+            console.error('Tableland error:', err)
+            setTablelandRetryCount(prev => prev + 1)
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+          }
+        }
+
+        if (!data) {
+          throw new Error(tablelandError ? `Failed to fetch song: ${tablelandError}` : 'Song not found')
+        }
+
         console.log('Song data:', data)
         setSong(data)
 
-        if (!data) {
-          setError('Song not found')
-          return
-        }
-
         // Determine which question set to load based on learning direction
-        // If language_1 is "en", then:
-        // - questions_cid_1 is for Chinese speakers learning English
-        // - questions_cid_2 is for English speakers learning Chinese
         const questionsCid = isLearningChinese ? data.questions_cid_1 : data.questions_cid_2
         console.log('Selected questions CID:', questionsCid, { isLearningChinese })
         
@@ -108,20 +161,25 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
           
           console.log('Processed questions:', questionsWithIds)
           setQuestions(questionsWithIds)
-        } catch (parseError: unknown) {
+        } catch (parseError) {
           console.error('Error parsing questions:', parseError)
-          setError(`Failed to parse questions data: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`)
+          const errorMessage = typeof parseError === 'object' && parseError !== null && 'message' in parseError
+            ? parseError.message
+            : 'Unknown error'
+          setError(`Failed to parse questions data: ${errorMessage}`)
         }
       } catch (error) {
         console.error('Error fetching song/questions:', error)
-        setError('Failed to load content')
+        setError(typeof error === 'object' && error !== null && 'message' in error
+          ? error.message
+          : 'Failed to load content')
       } finally {
         setIsLoading(false)
       }
     }
 
     fetchSongAndQuestions()
-  }, [params.id, isLearningChinese])
+  }, [params.id, isLearningChinese, isXmtpLoading, isXmtpInitialized, xmtpError, retryCount])
 
   const handleAnswer = async (answer: string) => {
     setSelectedAnswer(answer)
@@ -160,11 +218,63 @@ export default function QuestionsPage({ params: paramsPromise }: { params: Promi
     }
   }
 
+  const handleRetry = () => {
+    setRetryCount(0)
+    setTablelandRetryCount(0)
+    setError(null)
+    setIsLoading(true)
+    window.location.reload()
+  }
+
+  if (isXmtpLoading || (!isXmtpInitialized && retryCount < MAX_RETRIES)) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+          <div className="text-white text-center">
+            <div className="mb-4">Initializing messaging...</div>
+            <div className="text-sm text-neutral-400">
+              {retryCount > 0 ? `Retry attempt ${retryCount}/${MAX_RETRIES}...` : 'Please wait...'}
+            </div>
+          </div>
+        </div>
+      </AuthGuard>
+    )
+  }
+
+  if (xmtpError || (!isXmtpInitialized && retryCount >= MAX_RETRIES)) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-red-400 mb-4">
+              {xmtpError ? `Failed to initialize messaging: ${String(xmtpError)}` : 
+               'Failed to initialize messaging after multiple attempts'}
+            </p>
+            <Button 
+              onClick={handleRetry}
+              variant="ghost"
+              className="text-white hover:bg-neutral-800"
+            >
+              {currentLocale === 'en' ? 'Try Again' : '重试'}
+            </Button>
+          </div>
+        </div>
+      </AuthGuard>
+    )
+  }
+
   if (isLoading) {
     return (
       <AuthGuard>
         <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-          <div className="text-white">Loading questions...</div>
+          <div className="text-white text-center">
+            <div className="mb-4">Loading questions...</div>
+            {tablelandRetryCount > 0 && (
+              <div className="text-sm text-neutral-400">
+                Retrying to fetch data... ({tablelandRetryCount}/{MAX_RETRIES})
+              </div>
+            )}
+          </div>
         </div>
       </AuthGuard>
     )
