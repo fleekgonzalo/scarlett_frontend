@@ -222,7 +222,7 @@ export function useXmtp() {
       setMessages(prev => [...prev, { role: 'user', content: message }])
 
       // Wait for bot response (with timeout)
-      let botResponse: { isCorrect: boolean; explanation: string } | null = null
+      let botResponse: { correct: boolean; explanation: string; audio_cid?: string } | null = null
       const startTime = Date.now()
       const timeout = 30000 // Increase timeout to 30 seconds
 
@@ -254,8 +254,10 @@ export function useXmtp() {
             })
 
             const response = JSON.parse(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))
-            if (response.uuid === questionAnswer.uuid) {
-              console.log('Found matching response:', response)
+            
+            // Check if this is a valid response (has correct and explanation fields)
+            if ('correct' in response && 'explanation' in response) {
+              console.log('Found valid response:', response)
               botResponse = response
               // Add bot response to local state
               setMessages(prev => [...prev, { 
@@ -263,11 +265,6 @@ export function useXmtp() {
                 content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
               }])
               break
-            } else {
-              console.log('UUID mismatch:', {
-                expected: questionAnswer.uuid,
-                received: response.uuid
-              })
             }
           } catch (e) {
             console.log('Not a valid JSON response:', msg.content)
@@ -288,7 +285,7 @@ export function useXmtp() {
       }
 
       return {
-        isCorrect: botResponse.isCorrect,
+        isCorrect: botResponse.correct,
         explanation: botResponse.explanation || 'No explanation provided'
       }
     } catch (err) {
