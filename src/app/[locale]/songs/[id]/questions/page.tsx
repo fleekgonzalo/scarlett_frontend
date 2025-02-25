@@ -9,7 +9,6 @@ import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
 import Link from 'next/link'
-import { QuestionFeedback } from '@/components/QuestionFeedback'
 
 interface Question {
   uuid: string
@@ -29,12 +28,6 @@ interface QuestionAnswer {
   songId: string
 }
 
-interface QuestionResponse {
-  isCorrect: boolean
-  explanation: string
-  audio_cid?: string
-}
-
 export default function QuestionsPage() {
   const params = useParams()
   const songId = params?.id as string
@@ -47,7 +40,6 @@ export default function QuestionsPage() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
   const [explanation, setExplanation] = useState<string | null>(null)
-  const [response, setResponse] = useState<QuestionResponse | null>(null)
   
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
@@ -71,7 +63,7 @@ export default function QuestionsPage() {
         // Only fetch questions if we're authenticated and XMTP is initialized
         if (isAuthenticated && isXmtpInitialized && songData) {
           const questionsCid = isLearningChinese ? songData.questions_cid_1 : songData.questions_cid_2
-          const response = await fetch(`/api/ipfs/${questionsCid}`)
+          const response = await fetch(`https://premium.aiozpin.network/ipfs/${questionsCid}`)
           
           if (!response.ok) {
             throw new Error('Failed to fetch questions')
@@ -102,26 +94,25 @@ export default function QuestionsPage() {
       const response = await sendAnswer({
         uuid: questions[currentQuestionIndex].uuid,
         selectedAnswer: answer,
-        songId: song.id.toString()
+        songId: song.id
       })
 
-      setResponse(response)
       setExplanation(response.explanation)
+
+      // Wait a bit before moving to next question
+      setTimeout(() => {
+        if (currentQuestionIndex < questions.length - 1) {
+          setCurrentQuestionIndex(prev => prev + 1)
+          setSelectedAnswer(null)
+          setExplanation(null)
+        }
+      }, 2000)
     } catch (err) {
       console.error('Failed to validate answer:', err)
       setError('Failed to check answer')
       setExplanation('Could not validate answer')
     } finally {
       setIsValidating(false)
-    }
-  }
-
-  const handleNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1)
-      setSelectedAnswer(null)
-      setExplanation(null)
-      setResponse(null)
     }
   }
 
@@ -270,31 +261,17 @@ export default function QuestionsPage() {
 
             {/* Explanation */}
             {explanation && (
-              <div className="mt-6 space-y-4">
-                {isValidating ? (
-                  <div className="p-4 rounded-lg bg-neutral-700">
-                    <div className="flex items-center gap-3">
-                      <Loading size={20} color="#3B82F6" />
-                      <p className="text-white">Checking your answer...</p>
-                    </div>
-                  </div>
-                ) : response ? (
-                  <>
-                    <QuestionFeedback 
-                      isCorrect={response.isCorrect} 
-                      explanation={response.explanation}
-                      audioCid={response.audio_cid}
-                    />
-                    {currentQuestionIndex < questions.length - 1 && (
-                      <Button
-                        onClick={handleNext}
-                        className="w-full bg-blue-600 hover:bg-blue-700 mt-4"
-                      >
-                        Next Question
-                      </Button>
-                    )}
-                  </>
-                ) : null}
+              <div className={`mt-6 p-4 rounded-lg ${
+                isValidating 
+                  ? 'bg-neutral-700' 
+                  : selectedAnswer 
+                  ? 'bg-blue-600/20 border border-blue-600' 
+                  : 'bg-neutral-700'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {isValidating && <Loading size={20} color="#3B82F6" />}
+                  <p className="text-white">{explanation}</p>
+                </div>
               </div>
             )}
           </div>
