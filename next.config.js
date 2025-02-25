@@ -24,13 +24,13 @@ const nextConfig = {
           {
             key: 'Content-Security-Policy',
             value: process.env.NODE_ENV === 'development' 
-              ? "frame-ancestors 'self' http://localhost:* https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com;"
-              : "frame-ancestors 'self' https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com;"
+              ? "default-src 'self'; frame-ancestors 'self' http://localhost:* https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://premium.aiozpin.network https://*.ipfs.dweb.link https://* data: blob:; connect-src 'self' https://premium.aiozpin.network https://*.ipfs.dweb.link;"
+              : "default-src 'self'; frame-ancestors 'self' https://silksecure.net https://wallet.silk.sc; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://reown.com; style-src 'self' 'unsafe-inline' https://reown.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://premium.aiozpin.network https://*.ipfs.dweb.link https://* data: blob:; connect-src 'self' https://premium.aiozpin.network https://*.ipfs.dweb.link;"
           },
           {
-            // Required for SharedArrayBuffer
+            // Modified for external image loading
             key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp'
+            value: 'credentialless'
           },
           {
             // Required for SharedArrayBuffer
