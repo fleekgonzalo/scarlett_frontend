@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Client, type Signer, Conversation, DecodedMessage } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0xe22F64cED5a9EaA7C2879e5130Ae6D5Bd6463a12'
+const TUTOR_BOT_ADDRESS = '0x3f54D7C9CD3309c2e83568214f9Fd56f4c148391'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
