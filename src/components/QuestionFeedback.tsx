@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { Pause, Play } from 'lucide-react'
+import { useParams } from 'next/navigation'
 
 interface QuestionFeedbackProps {
   isCorrect: boolean
@@ -18,6 +19,8 @@ const CORRECT_AUDIO_FILES = [
 ]
 
 export function QuestionFeedback({ isCorrect, explanation, audioCid }: QuestionFeedbackProps) {
+  const params = useParams()
+  const locale = params?.locale as string || 'en'
   const [isPlaying, setIsPlaying] = useState(false)
   const [isAudioReady, setIsAudioReady] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -116,10 +119,11 @@ export function QuestionFeedback({ isCorrect, explanation, audioCid }: QuestionF
   return (
     <div className="flex items-start gap-4">
       <div className="relative w-12 h-12 shrink-0 bg-neutral-800 rounded-full overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/scarlett-peace.png"
+        <Image
+          src={`/${locale}/images/scarlett-peace.png`}
           alt="Scarlett"
+          width={48}
+          height={48}
           className="w-full h-full object-cover"
         />
       </div>

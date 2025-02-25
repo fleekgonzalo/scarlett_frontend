@@ -548,10 +548,10 @@ export function useXmtp() {
   // Function to get a random audio file for correct answers
   const getRandomCorrectAudio = (): string => {
     const correctAudioFiles = [
-      '/fantastic-tai-bang-le.mp3',
-      '/gan-de-piaoliang-well-done.mp3',
-      '/hen-chuse-excellent.mp3',
-      '/very-good-hen-hao.mp3'
+      '/en/audio/fantastic-tai-bang-le.mp3',
+      '/en/audio/gan-de-piaoliang-well-done.mp3',
+      '/en/audio/hen-chuse-excellent.mp3',
+      '/en/audio/very-good-hen-hao.mp3'
     ]
     const randomIndex = Math.floor(Math.random() * correctAudioFiles.length)
     return correctAudioFiles[randomIndex]

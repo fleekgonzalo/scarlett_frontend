@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Pause, Play, ChevronRight } from 'lucide-react'
 
 interface Question {
@@ -478,13 +479,26 @@ export default function QuestionsPage() {
           </div>
         </div>
 
-        {/* Current Question */}
+        {/* Current Question with Avatar */}
         <div className="space-y-8">
           <div className="p-6 rounded-lg bg-neutral-800">
-            <h3 className="text-xl font-medium text-white mb-6">
-              {currentQuestion.question}
-            </h3>
+            {/* Avatar and Question Header */}
+            <div className="flex items-center mb-6">
+              <div className="mr-4 flex-shrink-0">
+                <Image 
+                  src={`/${params?.locale || 'en'}/images/scarlett-peace.png`}
+                  alt="Scarlett"
+                  width={60}
+                  height={60}
+                  className="rounded-full border-2 border-blue-500"
+                />
+              </div>
+              <h3 className="text-xl font-medium text-white">
+                {currentQuestion.question}
+              </h3>
+            </div>
             
+            {/* Answer Options */}
             <div className="space-y-4">
               {Object.entries(currentQuestion.options).map(([key, value]) => (
                 <button
@@ -509,7 +523,7 @@ export default function QuestionsPage() {
               ))}
             </div>
 
-            {/* Explanation with audio controls */}
+            {/* Explanation with audio controls - now appears below the question without removing it */}
             {explanation && (
               <div className={`mt-6 p-4 rounded-lg ${
                 isValidating 
@@ -520,34 +534,50 @@ export default function QuestionsPage() {
                   ? 'bg-red-600/20 border border-red-600' 
                   : 'bg-neutral-700'
               }`}>
-                <div className="flex items-center gap-3">
-                  {isValidating ? (
-                    <Loading size={20} color="#3B82F6" />
-                  ) : null}
-                  <p className="text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
-                    {explanation}
-                  </p>
-                </div>
-                
-                {/* Audio controls */}
-                {audioSrc && !isValidating && (
-                  <div className="mt-3 flex items-center">
-                    <button
-                      onClick={handleToggleAudio}
-                      disabled={isAudioLoading}
-                      className="p-2 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors"
-                      aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
-                    >
-                      {isAudioLoading ? (
-                        <Loading size={16} color="#ffffff" />
-                      ) : isAudioPlaying ? (
-                        <Pause className="w-4 h-4 text-white" />
-                      ) : (
-                        <Play className="w-4 h-4 text-white" />
-                      )}
-                    </button>
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-1">
+                    {isValidating ? (
+                      <Loading size={20} color="#3B82F6" />
+                    ) : isCorrect ? (
+                      <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    ) : selectedAnswer ? (
+                      <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    ) : null}
                   </div>
-                )}
+                  <div className="flex-1">
+                    <p className="text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
+                      {explanation}
+                    </p>
+                    
+                    {/* Audio controls */}
+                    {audioSrc && !isValidating && (
+                      <div className="mt-3 flex items-center">
+                        <button
+                          onClick={handleToggleAudio}
+                          disabled={isAudioLoading}
+                          className="p-2 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors"
+                          aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
+                        >
+                          {isAudioLoading ? (
+                            <Loading size={16} color="#ffffff" />
+                          ) : isAudioPlaying ? (
+                            <Pause className="w-4 h-4 text-white" />
+                          ) : (
+                            <Play className="w-4 h-4 text-white" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
