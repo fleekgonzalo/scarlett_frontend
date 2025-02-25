@@ -22,7 +22,7 @@ export function MultipleChoiceOption({
   // Determine the background color based on selection and correctness
   const getBackgroundColor = () => {
     if (!selected) return "bg-neutral-700 hover:bg-neutral-600"
-    if (correct === null) return "bg-blue-600" // Just selected, not validated yet
+    if (correct === null) return "bg-neutral-600" // Just selected, not validated yet (lighter grey)
     if (correct) return "bg-green-600" // Correct answer
     return "bg-red-600" // Incorrect answer
   }

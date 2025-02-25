@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Pause, Play, ChevronRight } from 'lucide-react'
+import { Pause, Play, ChevronRight, X } from 'lucide-react'
 import { MultipleChoiceOption } from '@/components/MultipleChoiceOption'
 
 interface Question {
@@ -456,23 +456,17 @@ export default function QuestionsPage() {
       <audio ref={audioRef} className="hidden" />
       
       <div className="max-w-4xl mx-auto px-4 py-8 pb-24 relative">
-        {/* Back button */}
-        <div className="mb-8">
+        {/* Back button and Progress bar in header */}
+        <div className="mb-8 flex items-center gap-4">
           <Link
             href={`/${params?.locale || 'en'}/songs/${songId}`}
-            className="text-neutral-400 hover:text-white transition-colors"
+            className="text-neutral-400 hover:text-white transition-colors flex-shrink-0"
           >
-            ← Back to Song
+            <X className="w-6 h-6" />
           </Link>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-8">
-          <div className="flex justify-between text-sm text-neutral-400 mb-2">
-            <span>Question {currentQuestionIndex + 1} of {questions.length}</span>
-            <span>{Math.round(((currentQuestionIndex + 1) / questions.length) * 100)}%</span>
-          </div>
-          <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
+          
+          {/* Progress bar - now in header */}
+          <div className="h-2 bg-neutral-800 rounded-full overflow-hidden flex-1">
             <div 
               className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
@@ -480,69 +474,73 @@ export default function QuestionsPage() {
           </div>
         </div>
 
-        {/* Current Question with Avatar and Messages */}
-        <div className="space-y-8">
-          {/* Avatar and Messages Container */}
-          <div className="flex items-start gap-6 min-h-[240px]">
-            {/* Avatar on the left */}
-            <div className="flex-shrink-0">
+        {/* Main content area with fixed heights to prevent layout shifts */}
+        <div className="grid grid-rows-[auto_1fr] gap-4 min-h-[calc(100vh-200px)]">
+          {/* Top section with avatar, question and feedback - fixed height */}
+          <div className="grid md:grid-cols-[auto_1fr]">
+            {/* Avatar - centered on mobile, left on desktop */}
+            <div className="flex justify-center md:block md:pr-4">
               <Image 
                 src={`/${params?.locale || 'en'}/images/scarlett-peace.png`}
                 alt="Scarlett"
                 width={120}
                 height={120}
-                className="rounded-full border-2 border-blue-500 sticky top-4"
               />
             </div>
             
-            {/* Messages Container on the right */}
-            <div className="flex-1 space-y-4">
+            {/* Messages Container - fixed height to prevent layout shifts */}
+            <div className="flex flex-col gap-4">
               {/* Question Message */}
-              <div className="p-6 rounded-lg bg-neutral-800 w-full flex items-center min-h-[80px]">
+              <div className="p-4 rounded-lg bg-neutral-800 w-full flex items-center min-h-[80px]">
                 <p className="text-lg text-white">
                   {currentQuestion.question}
                 </p>
               </div>
               
-              {/* Feedback Message - appears when an answer is selected */}
-              {explanation && (
-                <div className="p-6 rounded-lg w-full bg-neutral-800 min-h-[80px]">
-                  <div className="flex items-center gap-3 h-full">
+              {/* Feedback Message Container - Always visible but transparent when empty */}
+              <div className={`p-4 rounded-lg w-full bg-neutral-800 min-h-[100px] relative ${!explanation ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
+                {explanation ? (
+                  <>
+                    {/* Explanation text */}
+                    <p className="text-lg text-white mb-10" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
+                      {explanation}
+                    </p>
+                    
+                    {/* Audio button positioned at bottom left, aligned with text */}
                     {isValidating ? (
-                      <div className="flex-shrink-0">
-                        <Loading size={20} color="#3B82F6" />
+                      <div className="absolute bottom-4 left-4">
+                        <div className="w-6 h-6 flex items-center justify-center">
+                          <Loading size={12} color="#3B82F6" />
+                        </div>
                       </div>
                     ) : audioSrc && (
-                      <div className="flex-shrink-0">
+                      <div className="absolute bottom-4 left-4">
                         <button
                           onClick={handleToggleAudio}
                           disabled={isAudioLoading}
-                          className="p-3 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors w-[52px] h-[52px] flex items-center justify-center"
+                          className="p-1 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors w-6 h-6 flex items-center justify-center"
                           aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
                         >
                           {isAudioLoading ? (
-                            <Loading size={20} color="#ffffff" />
+                            <Loading size={12} color="#ffffff" />
                           ) : isAudioPlaying ? (
-                            <Pause className="w-5 h-5 text-white" />
+                            <Pause className="w-3 h-3 text-white" />
                           ) : (
-                            <Play className="w-5 h-5 text-white" />
+                            <Play className="w-3 h-3 text-white" />
                           )}
                         </button>
                       </div>
                     )}
-                    <div className="flex-1 flex items-center">
-                      <p className="text-lg text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
-                        {explanation}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  </>
+                ) : (
+                  <div className="invisible">Placeholder for consistent height</div>
+                )}
+              </div>
             </div>
           </div>
           
-          {/* Answer Options */}
-          <div className="space-y-4">
+          {/* Answer Options - in a separate container that doesn't shift */}
+          <div className="space-y-4 mt-4">
             {Object.entries(currentQuestion.options).map(([key, value]) => (
               <MultipleChoiceOption
                 key={key}
