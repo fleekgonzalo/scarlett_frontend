@@ -498,7 +498,7 @@ export default function QuestionsPage() {
             {/* Messages Container on the right */}
             <div className="flex-1 space-y-4">
               {/* Question Message */}
-              <div className="p-6 rounded-lg bg-neutral-800 w-full">
+              <div className="p-6 rounded-lg bg-neutral-800 w-full flex items-center min-h-[80px]">
                 <p className="text-lg text-white">
                   {currentQuestion.question}
                 </p>
@@ -506,18 +506,18 @@ export default function QuestionsPage() {
               
               {/* Feedback Message - appears when an answer is selected */}
               {explanation && (
-                <div className="p-6 rounded-lg w-full bg-neutral-800">
-                  <div className="flex items-start gap-3">
+                <div className="p-6 rounded-lg w-full bg-neutral-800 min-h-[80px]">
+                  <div className="flex items-center gap-3 h-full">
                     {isValidating ? (
-                      <div className="flex-shrink-0 mt-1">
+                      <div className="flex-shrink-0">
                         <Loading size={20} color="#3B82F6" />
                       </div>
                     ) : audioSrc && (
-                      <div className="flex-shrink-0 mt-1">
+                      <div className="flex-shrink-0">
                         <button
                           onClick={handleToggleAudio}
                           disabled={isAudioLoading}
-                          className="p-3 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors"
+                          className="p-3 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors w-[52px] h-[52px] flex items-center justify-center"
                           aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
                         >
                           {isAudioLoading ? (
@@ -530,7 +530,7 @@ export default function QuestionsPage() {
                         </button>
                       </div>
                     )}
-                    <div className="flex-1">
+                    <div className="flex-1 flex items-center">
                       <p className="text-lg text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
                         {explanation}
                       </p>
