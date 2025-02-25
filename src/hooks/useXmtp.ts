@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Client, type Signer, Conversation, DecodedMessage } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0x8987FEc2e8f2EA74e93B94d4C2Ab553a05F025fF'
+const TUTOR_BOT_ADDRESS = '0xe22F64cED5a9EaA7C2879e5130Ae6D5Bd6463a12'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
@@ -204,13 +204,17 @@ export function useXmtp() {
         // Create a response object with audio information
         const response: AnswerResponse = {
           isCorrect: parsedContent.correct,
-          explanation: parsedContent.explanation || 'No explanation provided'
+          explanation: parsedContent.explanation || ''
         }
         
         // Add audio source based on whether the answer is correct or not
         if (parsedContent.correct) {
-          // For correct answers, use a random local audio file
+          // For correct answers, use a random local audio file with absolute path
           response.audioSrc = getRandomCorrectAudio()
+          // Set explanation based on the audio file if not provided
+          if (!response.explanation) {
+            response.explanation = getExplanationFromAudio(response.audioSrc)
+          }
         } else if (parsedContent.audio_cid) {
           // For incorrect answers, use the audio_cid from the response
           response.audioSrc = `https://premium.aiozpin.network/ipfs/${parsedContent.audio_cid}`
@@ -333,13 +337,17 @@ export function useXmtp() {
                       // Create a response object with audio information
                       const response: AnswerResponse = {
                         isCorrect: content.correct,
-                        explanation: content.explanation || 'No explanation provided'
+                        explanation: content.explanation || ''
                       }
                       
                       // Add audio source based on whether the answer is correct or not
                       if (content.correct) {
-                        // For correct answers, use a random local audio file
+                        // For correct answers, use a random local audio file with absolute path
                         response.audioSrc = getRandomCorrectAudio()
+                        // Set explanation based on the audio file if not provided
+                        if (!response.explanation) {
+                          response.explanation = getExplanationFromAudio(response.audioSrc)
+                        }
                       } else if (content.audio_cid) {
                         // For incorrect answers, use the audio_cid from the response
                         response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
@@ -540,14 +548,27 @@ export function useXmtp() {
   // Function to get a random audio file for correct answers
   const getRandomCorrectAudio = (): string => {
     const correctAudioFiles = [
-      'fantastic-tai-bang-le.mp3',
-      'gan-de-piaoliang-well-done.mp3',
-      'hen-chuse-excellent.mp3',
-      'very-good-hen-hao.mp3'
+      '/fantastic-tai-bang-le.mp3',
+      '/gan-de-piaoliang-well-done.mp3',
+      '/hen-chuse-excellent.mp3',
+      '/very-good-hen-hao.mp3'
     ]
     const randomIndex = Math.floor(Math.random() * correctAudioFiles.length)
-    // Return the filename without any path prefix to avoid localization issues
     return correctAudioFiles[randomIndex]
+  }
+
+  // Function to get a hardcoded explanation based on the audio filename
+  const getExplanationFromAudio = (audioSrc: string): string => {
+    if (audioSrc.includes('fantastic-tai-bang-le')) {
+      return "Fantastic! 太棒了 (tài bàng le)!"
+    } else if (audioSrc.includes('gan-de-piaoliang-well-done')) {
+      return "Well done! 干得漂亮 (gàn de piàoliang)!"
+    } else if (audioSrc.includes('hen-chuse-excellent')) {
+      return "很出色 (hěn chūsè)! Excellent!"
+    } else if (audioSrc.includes('very-good-hen-hao')) {
+      return "Very good! 很好 (hěn hǎo)!"
+    }
+    return "Great job!"
   }
 
   // Function to send answer to tutor bot
@@ -590,7 +611,7 @@ export function useXmtp() {
       
       // Check if there's a response in the last few messages
       // This handles the case where the response arrived before we created the promise
-      const recentMessages = messages.slice(-10);
+      const recentMessages = messages.slice(-20);
       for (const msg of recentMessages) {
         if (msg.role === 'assistant') {
           try {
@@ -609,24 +630,40 @@ export function useXmtp() {
               if (requestIndex !== -1) {
                 const responseIndex = recentMessages.indexOf(msg);
                 if (responseIndex > requestIndex) {
-                  console.log('Response matches current question request');
+                  // Make sure there are no other question requests between this request and response
+                  const messagesBetween = recentMessages.slice(requestIndex + 1, responseIndex);
+                  const otherRequestBetween = messagesBetween.some(m => 
+                    m.role === 'user' && 
+                    m.content.includes('"uuid"') && 
+                    m.content.includes('"selectedAnswer"')
+                  );
                   
-                  // Create response with audio information
-                  const response: AnswerResponse = {
-                    isCorrect: content.correct,
-                    explanation: content.explanation || 'No explanation provided'
+                  if (!otherRequestBetween) {
+                    console.log('Response matches current question request');
+                    
+                    // Create response with audio information
+                    const response: AnswerResponse = {
+                      isCorrect: content.correct,
+                      explanation: content.explanation || ''
+                    }
+                    
+                    // Add audio source based on whether the answer is correct or not
+                    if (content.correct) {
+                      // For correct answers, use a random local audio file with absolute path
+                      response.audioSrc = getRandomCorrectAudio()
+                      // Set explanation based on the audio file if not provided
+                      if (!response.explanation) {
+                        response.explanation = getExplanationFromAudio(response.audioSrc)
+                      }
+                    } else if (content.audio_cid) {
+                      // For incorrect answers, use the audio_cid from the response
+                      response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
+                    }
+                    
+                    return response;
+                  } else {
+                    console.log('Found another question request between this request and response, ignoring');
                   }
-                  
-                  // Add audio source based on whether the answer is correct or not
-                  if (content.correct) {
-                    // For correct answers, use a random local audio file
-                    response.audioSrc = getRandomCorrectAudio()
-                  } else if (content.audio_cid) {
-                    // For incorrect answers, use the audio_cid from the response
-                    response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
-                  }
-                  
-                  return response;
                 } else {
                   console.log('Response is from a previous question, ignoring');
                 }
@@ -688,33 +725,49 @@ export function useXmtp() {
                 if (requestIndex !== -1) {
                   const responseIndex = messages.indexOf(msg);
                   if (responseIndex > requestIndex) {
-                    console.log('Response matches current question request');
+                    // Make sure there are no other question requests between this request and response
+                    const messagesBetween = messages.slice(requestIndex + 1, responseIndex);
+                    const otherRequestBetween = messagesBetween.some(m => 
+                      m.role === 'user' && 
+                      m.content.includes('"uuid"') && 
+                      m.content.includes('"selectedAnswer"')
+                    );
                     
-                    // Create response with audio information
-                    const response: AnswerResponse = {
-                      isCorrect: content.correct,
-                      explanation: content.explanation || 'No explanation provided'
+                    if (!otherRequestBetween) {
+                      console.log('Response matches current question request');
+                      
+                      // Create response with audio information
+                      const response: AnswerResponse = {
+                        isCorrect: content.correct,
+                        explanation: content.explanation || ''
+                      }
+                      
+                      // Add audio source based on whether the answer is correct or not
+                      if (content.correct) {
+                        // For correct answers, use a random local audio file with absolute path
+                        response.audioSrc = getRandomCorrectAudio()
+                        // Set explanation based on the audio file if not provided
+                        if (!response.explanation) {
+                          response.explanation = getExplanationFromAudio(response.audioSrc)
+                        }
+                      } else if (content.audio_cid) {
+                        // For incorrect answers, use the audio_cid from the response
+                        response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
+                      }
+                      
+                      resolvePromise(response);
+                      
+                      // Clear the pending answer
+                      setPendingAnswers(prev => {
+                        const newMap = new Map(prev);
+                        newMap.delete(answerId);
+                        return newMap;
+                      });
+                      
+                      return; // Exit the timeout handler
+                    } else {
+                      console.log('Found another question request between this request and response, ignoring');
                     }
-                    
-                    // Add audio source based on whether the answer is correct or not
-                    if (content.correct) {
-                      // For correct answers, use a random local audio file
-                      response.audioSrc = getRandomCorrectAudio()
-                    } else if (content.audio_cid) {
-                      // For incorrect answers, use the audio_cid from the response
-                      response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
-                    }
-                    
-                    resolvePromise(response);
-                    
-                    // Clear the pending answer
-                    setPendingAnswers(prev => {
-                      const newMap = new Map(prev);
-                      newMap.delete(answerId);
-                      return newMap;
-                    });
-                    
-                    return; // Exit the timeout handler
                   } else {
                     console.log('Response is from a previous question, ignoring');
                   }

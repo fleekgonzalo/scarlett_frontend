@@ -170,6 +170,12 @@ export default function QuestionsPage() {
             
             audioElement.onerror = (e) => {
               console.error('Audio playback error:', e);
+              console.error('Audio error details:', {
+                error: audioElement?.error,
+                code: audioElement?.error?.code,
+                message: audioElement?.error?.message,
+                src: audioElement?.src
+              });
               setIsAudioPlaying(false);
               setIsAudioFinished(true);
               setIsAudioLoading(false);
@@ -190,15 +196,16 @@ export default function QuestionsPage() {
             }
           });
       } else {
-        // For local files, construct the correct path
-        // Ensure we use the correct path regardless of locale
-        const correctPath = `/${audioSrc}`;
-        console.log('Playing local audio file:', correctPath);
-        
-        audioElement = new Audio();
+        // For local files, the path should already be absolute from the root
+        // since we're setting it that way in the useXmtp hook
+        console.log('Current URL path:', window.location.pathname);
+        console.log('Using local audio file:', audioSrc);
+
+        // Create a new audio element with the path as is
+        audioElement = new Audio(audioSrc);
         audioElementRef.current = audioElement;
         
-        // Set up event handlers before setting the source
+        // Set up event handlers
         audioElement.oncanplaythrough = () => {
           console.log('Audio can play through, starting playback');
           setIsAudioLoading(false);
@@ -219,13 +226,18 @@ export default function QuestionsPage() {
         
         audioElement.onerror = (e) => {
           console.error('Audio playback error:', e);
+          console.error('Audio error details:', {
+            error: audioElement?.error,
+            code: audioElement?.error?.code,
+            message: audioElement?.error?.message,
+            src: audioElement?.src
+          });
           setIsAudioPlaying(false);
           setIsAudioFinished(true);
           setIsAudioLoading(false);
         };
         
-        // Set the source and load the audio
-        audioElement.src = correctPath;
+        // Load the audio
         audioElement.load();
       }
     } catch (err) {
@@ -259,7 +271,15 @@ export default function QuestionsPage() {
   }, [audioSrc]);
 
   const handleToggleAudio = () => {
-    if (!audioElementRef.current) return;
+    if (!audioElementRef.current) {
+      console.log('No audio element available to toggle');
+      return;
+    }
+    
+    console.log('Toggle audio, current state:', {
+      isPlaying: isAudioPlaying,
+      audioSrc: audioElementRef.current.src
+    });
     
     if (isAudioPlaying) {
       audioElementRef.current.pause();
@@ -320,7 +340,7 @@ export default function QuestionsPage() {
       setIsValidating(false)
       
       // Update the explanation with the response
-      setExplanation(response.isCorrect ? 'Correct!' : response.explanation)
+      setExplanation(response.explanation || (response.isCorrect ? 'Correct!' : 'Incorrect'))
       setIsCorrect(response.isCorrect)
       console.log('Updated explanation to:', response.explanation)
       
@@ -526,9 +546,6 @@ export default function QuestionsPage() {
                         <Play className="w-4 h-4 text-white" />
                       )}
                     </button>
-                    <span className="ml-2 text-sm text-neutral-400">
-                      {isAudioLoading ? "Loading audio..." : isAudioPlaying ? "Playing audio..." : "Play audio"}
-                    </span>
                   </div>
                 )}
               </div>
