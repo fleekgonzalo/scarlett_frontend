@@ -94,7 +94,7 @@ export default function QuestionsPage() {
       const response = await sendAnswer({
         uuid: questions[currentQuestionIndex].uuid,
         selectedAnswer: answer,
-        songId: song.id
+        songId: String(song.id)
       })
 
       setExplanation(response.explanation)

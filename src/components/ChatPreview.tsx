@@ -67,7 +67,31 @@ export function ChatPreview() {
                   ? 'bg-blue-600 text-white ml-auto' 
                   : 'bg-neutral-700 text-white'
               }`}>
-                {message.content}
+                {(() => {
+                  // Try to parse JSON if necessary
+                  try {
+                    if (message.content.startsWith('{') && message.content.endsWith('}')) {
+                      const jsonContent = JSON.parse(message.content);
+                      
+                      // Special handling for different message types
+                      if (jsonContent.explanation) {
+                        return jsonContent.explanation;
+                      } else if (jsonContent.uuid && jsonContent.selectedAnswer) {
+                        return `Answer selected: ${jsonContent.selectedAnswer}`;
+                      } else {
+                        // Fallback to show the most important parts of JSON
+                        return Object.entries(jsonContent)
+                          .map(([key, value]) => `${key}: ${value}`)
+                          .join(', ');
+                      }
+                    }
+                    // Not JSON, just show as is
+                    return message.content;
+                  } catch (e) {
+                    // If JSON parsing fails, show as is
+                    return message.content;
+                  }
+                })()}
               </div>
             </div>
           ))

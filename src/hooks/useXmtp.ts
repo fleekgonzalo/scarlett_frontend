@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Client, type Signer } from '@xmtp/browser-sdk'
+import { Client, type Signer, Conversation } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
 const TUTOR_BOT_ADDRESS = '0xB59386d6407Fe48E169D15fb5Df90b97bc5F41Ee'
@@ -46,6 +46,7 @@ export function useXmtp() {
   const [hasInitialized, setHasInitialized] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [initAttempts, setInitAttempts] = useState(0)
+  const [conversation, setConversation] = useState<Conversation | null>(null)
   const MAX_INIT_ATTEMPTS = 5
 
   // Load message history when client is initialized
@@ -53,6 +54,8 @@ export function useXmtp() {
     try {
       console.log('Loading message history...')
       const conversation = await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
+      setConversation(conversation)
+      
       const history = await conversation.messages()
       
       // Convert XMTP messages to our format with proper typing
@@ -61,9 +64,7 @@ export function useXmtp() {
           // Filter out system messages that have these properties
           const isSystemMessage = typeof msg.content === 'object' && 
             'initiatedByInboxId' in msg.content &&
-            'addedInboxes' in msg.content &&
-            'removedInboxes' in msg.content &&
-            'metadataFieldChanges' in msg.content
+            'addedInboxes' in msg.content
           
           if (isSystemMessage) {
             console.log('Filtering out system message:', msg.content)
@@ -82,6 +83,88 @@ export function useXmtp() {
       setError('Failed to load message history')
     }
   }
+
+  // Set up message streaming
+  useEffect(() => {
+    if (!client || !conversation) return
+
+    console.log('Setting up message stream...')
+    
+    // Start streaming messages
+    let streamCloser: any;
+    
+    const setupStream = async () => {
+      try {
+        const stream = await conversation.stream();
+        
+        // Handle incoming messages using for-await loop
+        (async () => {
+          try {
+            for await (const message of stream) {
+              if (!message) continue;
+              
+              console.log('Received message:', {
+                content: message.content,
+                sender: message.senderInboxId,
+                id: message.id,
+                sentAt: new Date(Number(message.sentAtNs / BigInt(1000000))).toISOString()
+              });
+              
+              // Skip our own messages and system messages
+              if (message.senderInboxId === client.inboxId || 
+                  (typeof message.content === 'object' && 
+                  'initiatedByInboxId' in message.content &&
+                  'addedInboxes' in message.content)) {
+                console.log('Skipping message:', message.content);
+                continue;
+              }
+              
+              // Add message to state
+              const messageContent = typeof message.content === 'string' 
+                ? message.content 
+                : JSON.stringify(message.content);
+              
+              setMessages(prev => {
+                // Check if message already exists to avoid duplicates
+                const exists = prev.some(m => 
+                  m.role === 'assistant' && 
+                  m.content === messageContent
+                );
+                
+                if (exists) {
+                  console.log('Message already exists, skipping');
+                  return prev;
+                }
+                
+                console.log('Adding new message to state:', messageContent);
+                return [...prev, { 
+                  role: 'assistant', 
+                  content: messageContent 
+                }];
+              });
+            }
+          } catch (err) {
+            console.error('Stream iteration error:', err);
+          }
+        })();
+        
+        // Store the stream closer function
+        streamCloser = stream.return;
+      } catch (err) {
+        console.error('Failed to set up message stream:', err);
+      }
+    };
+    
+    setupStream();
+    
+    // Clean up the stream when component unmounts
+    return () => {
+      console.log('Cleaning up message stream');
+      if (streamCloser) {
+        streamCloser();
+      }
+    };
+  }, [client, conversation]);
 
   // Initialize XMTP client when wallet is connected
   useEffect(() => {
@@ -165,14 +248,6 @@ export function useXmtp() {
         // Load message history
         await loadMessageHistory(xmtp)
 
-        // Initialize a test conversation
-        try {
-          console.log('Creating test conversation...')
-          await xmtp.conversations.newDm(TUTOR_BOT_ADDRESS)
-          console.log('Test conversation created')
-        } catch (convErr) {
-          console.error('Failed to create conversation:', convErr)
-        }
       } catch (err) {
         console.error('Failed to initialize XMTP:', err)
         setError(err instanceof Error ? err.message : 'Failed to initialize messaging')
@@ -201,93 +276,64 @@ export function useXmtp() {
 
   // Function to send answer to tutor bot
   const sendAnswer = async (questionAnswer: QuestionAnswer) => {
-    if (!client) {
+    if (!client || !conversation) {
       console.error('Cannot send answer: XMTP client not initialized')
       throw new Error('XMTP client not initialized')
     }
 
     try {
-      console.log('Creating conversation with tutor bot...')
-      // Create or load conversation
-      const conversation = await client.conversations.newDm(TUTOR_BOT_ADDRESS)
-      console.log('Conversation created/loaded')
-
       // Send the answer as JSON
       const message = JSON.stringify(questionAnswer)
-      console.log('Sending message to tutor:', message)
-      await conversation.send(message)
-      console.log('Message sent successfully')
-
-      // Add message to local state
+      console.log('Sending answer to tutor:', message)
+      
+      // Add message to local state immediately (optimistic update)
       setMessages(prev => [...prev, { role: 'user', content: message }])
-
-      // Wait for bot response (with timeout)
-      let botResponse: { correct: boolean; explanation: string; audio_cid?: string } | null = null
-      const startTime = Date.now()
-      const timeout = 30000 // Increase timeout to 30 seconds
-
-      console.log('Waiting for bot response...')
-      while (!botResponse && Date.now() - startTime < timeout) {
-        // Get latest messages
-        const messages = await conversation.messages()
-        console.log('All messages:', messages.map(m => ({
-          content: m.content,
-          sender: m.senderInboxId,
-          id: m.id
-        })))
-
-        // Look for a response from the tutor bot
-        for (const msg of messages) {
-          // Skip our own messages and system messages
-          if (msg.senderInboxId === client.inboxId || 
-              (typeof msg.content === 'object' && 
-               'initiatedByInboxId' in msg.content &&
-               'addedInboxes' in msg.content)) {
-            console.log('Skipping message:', msg.content)
-            continue
-          }
-
-          try {
-            console.log('Checking message:', {
-              content: msg.content,
-              sender: msg.senderInboxId
-            })
-
-            const response = JSON.parse(typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content))
+      
+      // Send the message
+      await conversation.send(message)
+      console.log('Answer sent successfully')
+      
+      // Return a promise that resolves when we receive a valid response
+      return new Promise<{ isCorrect: boolean; explanation: string }>((resolve, reject) => {
+        // Set a timeout just in case (30 seconds)
+        const timeoutId = setTimeout(() => {
+          reject(new Error('No response received from tutor within timeout period'))
+        }, 30000)
+        
+        // Create a function to check for a valid response
+        const checkForResponse = () => {
+          // Look through messages for a valid response
+          const responseMessage = messages.find(msg => {
+            if (msg.role !== 'assistant') return false
             
-            // Check if this is a valid response (has correct and explanation fields)
-            if ('correct' in response && 'explanation' in response) {
-              console.log('Found valid response:', response)
-              botResponse = response
-              // Add bot response to local state
-              setMessages(prev => [...prev, { 
-                role: 'assistant', 
-                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-              }])
-              break
+            try {
+              const content = JSON.parse(msg.content)
+              return 'correct' in content && 'explanation' in content
+            } catch {
+              return false
             }
-          } catch (e) {
-            console.log('Not a valid JSON response:', msg.content)
-            continue
+          })
+          
+          if (responseMessage) {
+            clearTimeout(timeoutId)
+            try {
+              const content = JSON.parse(responseMessage.content)
+              resolve({
+                isCorrect: content.correct,
+                explanation: content.explanation || 'No explanation provided'
+              })
+            } catch (err) {
+              reject(new Error('Failed to parse response'))
+            }
+          } else {
+            // Check again in a moment
+            setTimeout(checkForResponse, 500)
           }
         }
-
-        if (!botResponse) {
-          // Wait a bit before checking again
-          console.log('No matching response found, waiting...')
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        }
-      }
-
-      if (!botResponse) {
-        console.error('No response received within timeout')
-        throw new Error('No response received from tutor')
-      }
-
-      return {
-        isCorrect: botResponse.correct,
-        explanation: botResponse.explanation || 'No explanation provided'
-      }
+        
+        // Start checking for responses
+        checkForResponse()
+      })
     } catch (err) {
       console.error('Failed to send answer:', err)
       if (err instanceof Error) {
@@ -304,71 +350,23 @@ export function useXmtp() {
 
   // Function to send a general message
   const sendMessage = async (message: string): Promise<string> => {
-    if (!client) {
+    if (!client || !conversation) {
       console.error('Cannot send message: XMTP client not initialized')
       throw new Error('XMTP client not initialized')
     }
 
     try {
-      console.log('Creating conversation with tutor bot...')
-      const conversation = await client.conversations.newDm(TUTOR_BOT_ADDRESS)
-      console.log('Conversation created/loaded')
-
-      // Send the message
       console.log('Sending message:', message)
+      
+      // Add message to local state immediately (optimistic update)
+      setMessages(prev => [...prev, { role: 'user', content: message }])
+      
+      // Send the message
       await conversation.send(message)
       console.log('Message sent successfully')
-
-      // Add message to local state
-      setMessages(prev => [...prev, { role: 'user', content: message }])
-
-      // Wait for bot response (with timeout)
-      let botResponse: string | null = null
-      const startTime = Date.now()
-      const timeout = 30000 // 30 seconds timeout
-
-      console.log('Waiting for bot response...')
-      while (!botResponse && Date.now() - startTime < timeout) {
-        // Get latest messages
-        const messages = await conversation.messages()
-        console.log('All messages:', messages.map(m => ({
-          content: m.content,
-          sender: m.senderInboxId,
-          id: m.id
-        })))
-
-        // Look for a response from the tutor bot
-        for (const msg of messages) {
-          // Skip our own messages and system messages
-          if (msg.senderInboxId === client.inboxId || 
-              (typeof msg.content === 'object' && 
-               'initiatedByInboxId' in msg.content &&
-               'addedInboxes' in msg.content)) {
-            console.log('Skipping message:', msg.content)
-            continue
-          }
-
-          // Return the first message from the bot that isn't our own
-          const messageContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-          botResponse = messageContent
-          // Add bot response to local state
-          setMessages(prev => [...prev, { role: 'assistant', content: messageContent }])
-          break
-        }
-
-        if (!botResponse) {
-          // Wait a bit before checking again
-          console.log('No response found, waiting...')
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        }
-      }
-
-      if (!botResponse) {
-        console.error('No response received within timeout')
-        throw new Error('No response received from tutor')
-      }
-
-      return botResponse
+      
+      // The response will be handled by the message stream
+      return message
     } catch (err) {
       console.error('Failed to send message:', err)
       throw err
