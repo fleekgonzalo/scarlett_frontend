@@ -82,7 +82,7 @@ export default function QuestionsPage() {
 
         // Only fetch questions if we're authenticated and XMTP is initialized
         if (isAuthenticated && isXmtpInitialized && songData) {
-          const questionsCid = isLearningChinese ? songData.questions_cid_1 : songData.questions_cid_2
+          const questionsCid = isLearningChinese ? songData.questions_cid_2 : songData.questions_cid_1
           const response = await fetch(`https://premium.aiozpin.network/ipfs/${questionsCid}`)
           
           if (!response.ok) {

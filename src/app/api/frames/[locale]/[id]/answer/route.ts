@@ -20,7 +20,7 @@ export async function POST(
     // If language_1 is "en", then:
     // - questions_cid_1 is for Chinese speakers learning English
     // - questions_cid_2 is for English speakers learning Chinese
-    const questionsCid = isLearningChinese ? song.questions_cid_1 : song.questions_cid_2
+    const questionsCid = isLearningChinese ? song.questions_cid_2 : song.questions_cid_1
 
     if (!questionsCid) {
       return new Response('No questions available', { status: 404 })
