@@ -82,7 +82,11 @@ export default function QuestionsPage() {
 
         // Only fetch questions if we're authenticated and XMTP is initialized
         if (isAuthenticated && isXmtpInitialized && songData) {
-          const questionsCid = isLearningChinese ? songData.questions_cid_2 : songData.questions_cid_1
+          // If language_1 is "en", then:
+          // - questions_cid_1 is for Chinese speakers learning English (zh locale)
+          // - questions_cid_2 is for English speakers learning Chinese (en locale)
+          // We need to swap the logic to match the locale correctly
+          const questionsCid = params?.locale === 'zh' ? songData.questions_cid_1 : songData.questions_cid_2
           const response = await fetch(`https://premium.aiozpin.network/ipfs/${questionsCid}`)
           
           if (!response.ok) {
@@ -101,7 +105,7 @@ export default function QuestionsPage() {
     }
 
     fetchData()
-  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized])
+  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized, params?.locale])
 
   // Play audio when audioSrc changes
   useEffect(() => {
@@ -388,20 +392,23 @@ export default function QuestionsPage() {
               href={`/${params?.locale || 'en'}/songs/${songId}`}
               className="text-neutral-400 hover:text-white transition-colors"
             >
-              ← Back to Song
+              {params?.locale === 'zh' ? '← 返回歌曲' : '← Back to Song'}
             </Link>
           </div>
 
           <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg bg-neutral-800">
             <p className="text-lg text-white mb-4">
-              Sign in to start learning with this song
+              {params?.locale === 'zh' 
+                ? '登录以开始通过这首歌学习' 
+                : 'Sign in to start learning with this song'
+              }
             </p>
             <Button
               onClick={login}
               size="lg"
               className="bg-blue-600 hover:bg-blue-700"
             >
-              Sign In
+              {params?.locale === 'zh' ? '登录' : 'Sign In'}
             </Button>
           </div>
         </div>
@@ -414,7 +421,9 @@ export default function QuestionsPage() {
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loading size={32} color="#3B82F6" />
-          <p className="text-neutral-400">Loading questions...</p>
+          <p className="text-neutral-400">
+            {params?.locale === 'zh' ? '加载问题中...' : 'Loading questions...'}
+          </p>
         </div>
       </div>
     )
@@ -430,17 +439,19 @@ export default function QuestionsPage() {
               href={`/${params?.locale || 'en'}/songs/${songId}`}
               className="text-neutral-400 hover:text-white transition-colors"
             >
-              ← Back to Song
+              ← {params?.locale === 'zh' ? '返回歌曲' : 'Back to Song'}
             </Link>
           </div>
 
           <div className="text-center py-12">
-            <p className="text-red-400 mb-4">{error || 'No questions available'}</p>
+            <p className="text-red-400 mb-4">
+              {error || (params?.locale === 'zh' ? '没有可用的问题' : 'No questions available')}
+            </p>
             <Button 
               onClick={() => window.location.reload()}
               variant="outline"
             >
-              Try Again
+              {params?.locale === 'zh' ? '重试' : 'Try Again'}
             </Button>
           </div>
         </div>
@@ -466,7 +477,7 @@ export default function QuestionsPage() {
           </Link>
           
           {/* Progress bar - now in header */}
-          <div className="h-2 bg-neutral-800 rounded-full overflow-hidden flex-1">
+          <div className="h-2 bg-neutral-800 rounded-full flex-1">
             <div 
               className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
@@ -492,49 +503,52 @@ export default function QuestionsPage() {
             <div className="flex flex-col gap-4">
               {/* Question Message */}
               <div className="p-4 rounded-lg bg-neutral-800 w-full flex items-center min-h-[80px]">
-                <p className="text-lg text-white">
+                <p className="text-md text-white">
                   {currentQuestion.question}
                 </p>
               </div>
               
-              {/* Feedback Message Container - Always visible but transparent when empty */}
-              <div className={`p-4 rounded-lg w-full bg-neutral-800 min-h-[100px] relative ${!explanation ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
-                {explanation ? (
-                  <>
-                    {/* Explanation text */}
-                    <p className="text-lg text-white mb-10" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
-                      {explanation}
-                    </p>
-                    
-                    {/* Audio button positioned at bottom left, aligned with text */}
-                    {isValidating ? (
-                      <div className="absolute bottom-4 left-4">
-                        <div className="w-6 h-6 flex items-center justify-center">
-                          <Loading size={12} color="#3B82F6" />
+              {/* Feedback Message Container - Fixed height container */}
+              <div className="h-[100px] w-full relative">
+                {/* Actual feedback content with absolute positioning */}
+                <div className={`absolute inset-0 p-4 rounded-lg bg-neutral-800 transition-opacity duration-300 ${!explanation ? 'opacity-0' : 'opacity-100'}`}>
+                  {explanation && (
+                    <>
+                      {/* Explanation text with padding to avoid button overlap */}
+                      <div className="pr-12">
+                        <p className="text-md text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
+                          {explanation}
+                        </p>
+                      </div>
+                      
+                      {/* Audio button positioned at bottom right to avoid text overlap */}
+                      {isValidating ? (
+                        <div className="absolute bottom-3 right-3">
+                          <div className="w-8 h-8 flex items-center justify-center">
+                            <Loading size={12} color="#3B82F6" />
+                          </div>
                         </div>
-                      </div>
-                    ) : audioSrc && (
-                      <div className="absolute bottom-4 left-4">
-                        <button
-                          onClick={handleToggleAudio}
-                          disabled={isAudioLoading}
-                          className="p-1 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors w-6 h-6 flex items-center justify-center"
-                          aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
-                        >
-                          {isAudioLoading ? (
-                            <Loading size={12} color="#ffffff" />
-                          ) : isAudioPlaying ? (
-                            <Pause className="w-3 h-3 text-white" />
-                          ) : (
-                            <Play className="w-3 h-3 text-white" />
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="invisible">Placeholder for consistent height</div>
-                )}
+                      ) : audioSrc && (
+                        <div className="absolute bottom-3 right-3">
+                          <button
+                            onClick={handleToggleAudio}
+                            disabled={isAudioLoading}
+                            className="p-1 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors w-8 h-8 flex items-center justify-center"
+                            aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
+                          >
+                            {isAudioLoading ? (
+                              <Loading size={10} color="#ffffff" />
+                            ) : isAudioPlaying ? (
+                              <Pause className="w-3 h-3 text-white" />
+                            ) : (
+                              <Play className="w-3 h-3 text-white" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -565,10 +579,10 @@ export default function QuestionsPage() {
                 className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg"
               >
                 {currentQuestionIndex >= questions.length - 1 ? (
-                  "Completed"
+                  params?.locale === 'zh' ? "已完成" : "Completed"
                 ) : (
                   <div className="flex items-center justify-center gap-2">
-                    Next <ChevronRight className="w-5 h-5" />
+                    {params?.locale === 'zh' ? '下一题' : 'Next'} <ChevronRight className="w-5 h-5" />
                   </div>
                 )}
               </Button>

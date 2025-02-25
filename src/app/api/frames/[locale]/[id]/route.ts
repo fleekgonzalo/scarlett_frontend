@@ -18,9 +18,10 @@ export async function GET(
     // Determine which question set to load
     const isLearningChinese = params.locale === 'en'
     // If language_1 is "en", then:
-    // - questions_cid_1 is for Chinese speakers learning English
-    // - questions_cid_2 is for English speakers learning Chinese
-    const questionsCid = isLearningChinese ? song.questions_cid_2 : song.questions_cid_1
+    // - questions_cid_1 is for Chinese speakers learning English (zh locale)
+    // - questions_cid_2 is for English speakers learning Chinese (en locale)
+    // We need to use the locale directly to determine which CID to use
+    const questionsCid = params.locale === 'zh' ? song.questions_cid_1 : song.questions_cid_2
 
     if (!questionsCid) {
       return new Response('No questions available', { status: 404 })
