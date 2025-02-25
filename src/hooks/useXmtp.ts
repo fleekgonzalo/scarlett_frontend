@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Client, type Signer, Conversation } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
-const TUTOR_BOT_ADDRESS = '0xB59386d6407Fe48E169D15fb5Df90b97bc5F41Ee'
+const TUTOR_BOT_ADDRESS = '0x8987FEc2e8f2EA74e93B94d4C2Ab553a05F025fF'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
@@ -36,6 +36,13 @@ interface Message {
   content: string
 }
 
+// Helper to check if an object is a system message
+const isSystemMessage = (content: any): boolean => {
+  return typeof content === 'object' && 
+    'initiatedByInboxId' in content &&
+    'addedInboxes' in content
+}
+
 export function useXmtp() {
   const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
@@ -47,6 +54,7 @@ export function useXmtp() {
   const [messages, setMessages] = useState<Message[]>([])
   const [initAttempts, setInitAttempts] = useState(0)
   const [conversation, setConversation] = useState<Conversation | null>(null)
+  const [pendingAnswers, setPendingAnswers] = useState<Map<string, (result: any) => void>>(new Map())
   const MAX_INIT_ATTEMPTS = 5
 
   // Load message history when client is initialized
@@ -61,15 +69,12 @@ export function useXmtp() {
       // Convert XMTP messages to our format with proper typing
       const formattedMessages = history
         .filter(msg => {
-          // Filter out system messages that have these properties
-          const isSystemMessage = typeof msg.content === 'object' && 
-            'initiatedByInboxId' in msg.content &&
-            'addedInboxes' in msg.content
-          
-          if (isSystemMessage) {
+          // Filter out system messages
+          if (isSystemMessage(msg.content)) {
             console.log('Filtering out system message:', msg.content)
+            return false
           }
-          return !isSystemMessage
+          return true
         })
         .map(msg => ({
           role: msg.senderInboxId === xmtp.inboxId ? 'user' as const : 'assistant' as const,
@@ -81,6 +86,86 @@ export function useXmtp() {
     } catch (err) {
       console.error('Failed to load message history:', err)
       setError('Failed to load message history')
+    }
+  }
+
+  // Process incoming message and handle answer validation
+  const handleIncomingMessage = (message: any, clientInboxId: string) => {
+    if (!message) return
+    
+    console.log('Received message:', {
+      content: message.content,
+      sender: message.senderInboxId,
+      id: message.id,
+      sentAt: new Date(Number(message.sentAtNs / BigInt(1000000))).toISOString()
+    })
+    
+    // Skip our own messages
+    if (message.senderInboxId === clientInboxId) {
+      console.log('Skipping own message')
+      return
+    }
+    
+    // Skip system messages
+    if (isSystemMessage(message.content)) {
+      console.log('Skipping system message:', message.content)
+      return
+    }
+    
+    // Format the message content
+    const messageContent = typeof message.content === 'string' 
+      ? message.content 
+      : JSON.stringify(message.content)
+    
+    // Check if this is a duplicate message
+    const isDuplicate = messages.some(m => 
+      m.role === 'assistant' && 
+      m.content === messageContent
+    )
+    
+    if (isDuplicate) {
+      console.log('Message already exists, skipping')
+      return
+    }
+    
+    console.log('Adding new message to state:', messageContent)
+    
+    // Add message to state
+    setMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: messageContent 
+    }])
+    
+    // Check if this is a response to a pending answer
+    try {
+      // Try to parse the content as JSON
+      let parsedContent
+      try {
+        parsedContent = typeof message.content === 'object' 
+          ? message.content 
+          : JSON.parse(messageContent)
+      } catch (e) {
+        // Not JSON, ignore for answer validation
+        return
+      }
+      
+      // Check if this is an answer validation response
+      if ('correct' in parsedContent) {
+        console.log('Found answer validation response:', parsedContent)
+        
+        // Resolve all pending answers - the most recent one is likely the one we want
+        pendingAnswers.forEach((resolve) => {
+          resolve({
+            isCorrect: parsedContent.correct,
+            explanation: parsedContent.explanation || 'No explanation provided'
+          })
+        })
+        
+        // Clear pending answers
+        setPendingAnswers(new Map())
+      }
+    } catch (err) {
+      console.error('Error processing message for answer validation:', err)
     }
   }
 
@@ -101,47 +186,7 @@ export function useXmtp() {
         (async () => {
           try {
             for await (const message of stream) {
-              if (!message) continue;
-              
-              console.log('Received message:', {
-                content: message.content,
-                sender: message.senderInboxId,
-                id: message.id,
-                sentAt: new Date(Number(message.sentAtNs / BigInt(1000000))).toISOString()
-              });
-              
-              // Skip our own messages and system messages
-              if (message.senderInboxId === client.inboxId || 
-                  (typeof message.content === 'object' && 
-                  'initiatedByInboxId' in message.content &&
-                  'addedInboxes' in message.content)) {
-                console.log('Skipping message:', message.content);
-                continue;
-              }
-              
-              // Add message to state
-              const messageContent = typeof message.content === 'string' 
-                ? message.content 
-                : JSON.stringify(message.content);
-              
-              setMessages(prev => {
-                // Check if message already exists to avoid duplicates
-                const exists = prev.some(m => 
-                  m.role === 'assistant' && 
-                  m.content === messageContent
-                );
-                
-                if (exists) {
-                  console.log('Message already exists, skipping');
-                  return prev;
-                }
-                
-                console.log('Adding new message to state:', messageContent);
-                return [...prev, { 
-                  role: 'assistant', 
-                  content: messageContent 
-                }];
-              });
+              handleIncomingMessage(message, client.inboxId || '')
             }
           } catch (err) {
             console.error('Stream iteration error:', err);
@@ -289,51 +334,41 @@ export function useXmtp() {
       // Add message to local state immediately (optimistic update)
       setMessages(prev => [...prev, { role: 'user', content: message }])
       
+      // Create a promise that will be resolved when we get a response
+      const responsePromise = new Promise<{ isCorrect: boolean; explanation: string }>((resolve) => {
+        // Generate a unique ID for this answer
+        const answerId = `${questionAnswer.uuid}-${Date.now()}`
+        
+        // Store the resolver function
+        setPendingAnswers(prev => {
+          const newMap = new Map(prev)
+          newMap.set(answerId, resolve)
+          return newMap
+        })
+        
+        // Set a timeout to clean up if we don't get a response
+        setTimeout(() => {
+          setPendingAnswers(prev => {
+            const newMap = new Map(prev)
+            if (newMap.has(answerId)) {
+              console.log('Answer timed out, resolving with default response')
+              resolve({
+                isCorrect: false,
+                explanation: 'No response received from tutor within timeout period'
+              })
+              newMap.delete(answerId)
+            }
+            return newMap
+          })
+        }, 30000)
+      })
+      
       // Send the message
       await conversation.send(message)
       console.log('Answer sent successfully')
       
-      // Return a promise that resolves when we receive a valid response
-      return new Promise<{ isCorrect: boolean; explanation: string }>((resolve, reject) => {
-        // Set a timeout just in case (30 seconds)
-        const timeoutId = setTimeout(() => {
-          reject(new Error('No response received from tutor within timeout period'))
-        }, 30000)
-        
-        // Create a function to check for a valid response
-        const checkForResponse = () => {
-          // Look through messages for a valid response
-          const responseMessage = messages.find(msg => {
-            if (msg.role !== 'assistant') return false
-            
-            try {
-              const content = JSON.parse(msg.content)
-              return 'correct' in content && 'explanation' in content
-            } catch {
-              return false
-            }
-          })
-          
-          if (responseMessage) {
-            clearTimeout(timeoutId)
-            try {
-              const content = JSON.parse(responseMessage.content)
-              resolve({
-                isCorrect: content.correct,
-                explanation: content.explanation || 'No explanation provided'
-              })
-            } catch (err) {
-              reject(new Error('Failed to parse response'))
-            }
-          } else {
-            // Check again in a moment
-            setTimeout(checkForResponse, 500)
-          }
-        }
-        
-        // Start checking for responses
-        checkForResponse()
-      })
+      // Return the promise that will be resolved when we get a response
+      return responsePromise
     } catch (err) {
       console.error('Failed to send answer:', err)
       if (err instanceof Error) {
