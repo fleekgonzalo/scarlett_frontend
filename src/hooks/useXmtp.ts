@@ -36,6 +36,13 @@ interface Message {
   content: string
 }
 
+// Add new interface for the response that includes audio information
+interface AnswerResponse {
+  isCorrect: boolean
+  explanation: string
+  audioSrc?: string
+}
+
 // Helper to check if an object is a system message
 const isSystemMessage = (content: any): boolean => {
   return typeof content === 'object' && 
@@ -57,7 +64,7 @@ export function useXmtp() {
   const [pendingAnswers, setPendingAnswers] = useState<Map<string, (result: any) => void>>(new Map())
   const [latestResponse, setLatestResponse] = useState<{
     timestamp: number, 
-    response: {isCorrect: boolean, explanation: string},
+    response: AnswerResponse,
     uuid?: string
   } | null>(null)
   const MAX_INIT_ATTEMPTS = 5
@@ -194,10 +201,19 @@ export function useXmtp() {
       if ('correct' in parsedContent) {
         console.log('Received answer validation response:', parsedContent)
         
-        // Create a response object
-        const response = {
+        // Create a response object with audio information
+        const response: AnswerResponse = {
           isCorrect: parsedContent.correct,
           explanation: parsedContent.explanation || 'No explanation provided'
+        }
+        
+        // Add audio source based on whether the answer is correct or not
+        if (parsedContent.correct) {
+          // For correct answers, use a random local audio file
+          response.audioSrc = getRandomCorrectAudio()
+        } else if (parsedContent.audio_cid) {
+          // For incorrect answers, use the audio_cid from the response
+          response.audioSrc = `https://premium.aiozpin.network/ipfs/${parsedContent.audio_cid}`
         }
         
         // Check if we have any pending answers
@@ -314,10 +330,19 @@ export function useXmtp() {
                     if (content && 'correct' in content) {
                       console.log('Found answer validation response in stream:', content)
                       
-                      // Create a response object
-                      const response = {
+                      // Create a response object with audio information
+                      const response: AnswerResponse = {
                         isCorrect: content.correct,
                         explanation: content.explanation || 'No explanation provided'
+                      }
+                      
+                      // Add audio source based on whether the answer is correct or not
+                      if (content.correct) {
+                        // For correct answers, use a random local audio file
+                        response.audioSrc = getRandomCorrectAudio()
+                      } else if (content.audio_cid) {
+                        // For incorrect answers, use the audio_cid from the response
+                        response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
                       }
                       
                       // Check if we have a UUID in the message
@@ -512,8 +537,21 @@ export function useXmtp() {
     }
   }, [isConnected, address, hasInitialized, isInitializing, client, initAttempts, signMessageAsync])
 
+  // Function to get a random audio file for correct answers
+  const getRandomCorrectAudio = (): string => {
+    const correctAudioFiles = [
+      'fantastic-tai-bang-le.mp3',
+      'gan-de-piaoliang-well-done.mp3',
+      'hen-chuse-excellent.mp3',
+      'very-good-hen-hao.mp3'
+    ]
+    const randomIndex = Math.floor(Math.random() * correctAudioFiles.length)
+    // Return the filename without any path prefix to avoid localization issues
+    return correctAudioFiles[randomIndex]
+  }
+
   // Function to send answer to tutor bot
-  const sendAnswer = async (questionAnswer: QuestionAnswer) => {
+  const sendAnswer = async (questionAnswer: QuestionAnswer): Promise<AnswerResponse> => {
     if (!client || !conversation) {
       console.error('Cannot send answer: XMTP client not initialized')
       throw new Error('XMTP client not initialized')
@@ -572,10 +610,22 @@ export function useXmtp() {
                 const responseIndex = recentMessages.indexOf(msg);
                 if (responseIndex > requestIndex) {
                   console.log('Response matches current question request');
-                  const response = {
+                  
+                  // Create response with audio information
+                  const response: AnswerResponse = {
                     isCorrect: content.correct,
                     explanation: content.explanation || 'No explanation provided'
-                  };
+                  }
+                  
+                  // Add audio source based on whether the answer is correct or not
+                  if (content.correct) {
+                    // For correct answers, use a random local audio file
+                    response.audioSrc = getRandomCorrectAudio()
+                  } else if (content.audio_cid) {
+                    // For incorrect answers, use the audio_cid from the response
+                    response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
+                  }
+                  
                   return response;
                 } else {
                   console.log('Response is from a previous question, ignoring');
@@ -591,10 +641,10 @@ export function useXmtp() {
       }
       
       // Create a resolver that will be used to resolve the promise
-      let resolvePromise: (value: { isCorrect: boolean; explanation: string }) => void;
+      let resolvePromise: (value: AnswerResponse) => void;
       
       // Create a promise that will be resolved when we get a response
-      const responsePromise = new Promise<{ isCorrect: boolean; explanation: string }>(resolve => {
+      const responsePromise = new Promise<AnswerResponse>(resolve => {
         resolvePromise = resolve;
       });
       
@@ -639,10 +689,23 @@ export function useXmtp() {
                   const responseIndex = messages.indexOf(msg);
                   if (responseIndex > requestIndex) {
                     console.log('Response matches current question request');
-                    resolvePromise({
+                    
+                    // Create response with audio information
+                    const response: AnswerResponse = {
                       isCorrect: content.correct,
                       explanation: content.explanation || 'No explanation provided'
-                    });
+                    }
+                    
+                    // Add audio source based on whether the answer is correct or not
+                    if (content.correct) {
+                      // For correct answers, use a random local audio file
+                      response.audioSrc = getRandomCorrectAudio()
+                    } else if (content.audio_cid) {
+                      // For incorrect answers, use the audio_cid from the response
+                      response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
+                    }
+                    
+                    resolvePromise(response);
                     
                     // Clear the pending answer
                     setPendingAnswers(prev => {

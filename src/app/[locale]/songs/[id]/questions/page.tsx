@@ -1,7 +1,7 @@
 'use client'
 
 import { useParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { TablelandClient, type Song } from '@/services/tableland'
 import { useLanguageStore } from '@/stores/languageStore'
 import { useXmtp } from '@/hooks/useXmtp'
@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
 import Link from 'next/link'
+import { Pause, Play, ChevronRight } from 'lucide-react'
 
 interface Question {
   uuid: string
@@ -41,6 +42,12 @@ export default function QuestionsPage() {
   const [isValidating, setIsValidating] = useState(false)
   const [explanation, setExplanation] = useState<string | null>(null)
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
+  const [audioSrc, setAudioSrc] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
+  const [isAudioFinished, setIsAudioFinished] = useState(false)
+  const audioElementRef = useRef<HTMLAudioElement | null>(null)
+  const [isAudioLoading, setIsAudioLoading] = useState(false)
   
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
@@ -94,6 +101,198 @@ export default function QuestionsPage() {
     fetchData()
   }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized])
 
+  // Play audio when audioSrc changes
+  useEffect(() => {
+    if (!audioSrc) {
+      setIsAudioPlaying(false);
+      setIsAudioFinished(false);
+      setIsAudioLoading(false);
+      return;
+    }
+    
+    console.log('Playing audio:', audioSrc);
+    setIsAudioLoading(true);
+    
+    // Track any created blob URLs so we can clean them up
+    let blobUrl: string | null = null;
+    let audioElement: HTMLAudioElement | null = null;
+    
+    try {
+      // Check if this is a local file or external URL
+      const isExternalUrl = audioSrc.startsWith('http');
+      
+      if (isExternalUrl) {
+        // For external URLs (IPFS), we need to fetch the audio and play it as a blob
+        console.log('Fetching external audio file');
+        
+        // Create an AbortController to cancel the fetch if needed
+        const controller = new AbortController();
+        const signal = controller.signal;
+        
+        fetch(audioSrc, { signal })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`Failed to fetch audio: ${response.status}`);
+            }
+            return response.blob();
+          })
+          .then(blob => {
+            // Create a blob URL from the fetched audio data
+            blobUrl = URL.createObjectURL(blob);
+            console.log('Created blob URL:', blobUrl);
+            
+            // Create a new audio element
+            audioElement = new Audio();
+            audioElementRef.current = audioElement;
+            
+            // Set up event handlers before setting the source
+            audioElement.oncanplaythrough = () => {
+              console.log('Audio can play through, starting playback');
+              setIsAudioLoading(false);
+              setIsAudioPlaying(true);
+              audioElement?.play().catch(err => {
+                console.error('Failed to play audio:', err);
+                setIsAudioPlaying(false);
+                setIsAudioFinished(true);
+                setIsAudioLoading(false);
+              });
+            };
+            
+            audioElement.onended = () => {
+              console.log('Audio playback ended, cleaning up');
+              setIsAudioPlaying(false);
+              setIsAudioFinished(true);
+              if (blobUrl) {
+                URL.revokeObjectURL(blobUrl);
+                blobUrl = null;
+              }
+            };
+            
+            audioElement.onerror = (e) => {
+              console.error('Audio playback error:', e);
+              setIsAudioPlaying(false);
+              setIsAudioFinished(true);
+              setIsAudioLoading(false);
+            };
+            
+            // Set the source and load the audio
+            audioElement.src = blobUrl;
+            audioElement.load();
+          })
+          .catch(err => {
+            console.error('Failed to fetch or play audio:', err);
+            setIsAudioPlaying(false);
+            setIsAudioFinished(true);
+            setIsAudioLoading(false);
+            if (blobUrl) {
+              URL.revokeObjectURL(blobUrl);
+              blobUrl = null;
+            }
+          });
+      } else {
+        // For local files, construct the correct path
+        // Ensure we use the correct path regardless of locale
+        const correctPath = `/${audioSrc}`;
+        console.log('Playing local audio file:', correctPath);
+        
+        audioElement = new Audio();
+        audioElementRef.current = audioElement;
+        
+        // Set up event handlers before setting the source
+        audioElement.oncanplaythrough = () => {
+          console.log('Audio can play through, starting playback');
+          setIsAudioLoading(false);
+          setIsAudioPlaying(true);
+          audioElement?.play().catch(err => {
+            console.error('Failed to play audio:', err);
+            setIsAudioPlaying(false);
+            setIsAudioFinished(true);
+            setIsAudioLoading(false);
+          });
+        };
+        
+        audioElement.onended = () => {
+          console.log('Audio playback ended');
+          setIsAudioPlaying(false);
+          setIsAudioFinished(true);
+        };
+        
+        audioElement.onerror = (e) => {
+          console.error('Audio playback error:', e);
+          setIsAudioPlaying(false);
+          setIsAudioFinished(true);
+          setIsAudioLoading(false);
+        };
+        
+        // Set the source and load the audio
+        audioElement.src = correctPath;
+        audioElement.load();
+      }
+    } catch (err) {
+      console.error('Error setting up audio playback:', err);
+      setIsAudioPlaying(false);
+      setIsAudioFinished(true);
+      setIsAudioLoading(false);
+    }
+    
+    // Cleanup function
+    return () => {
+      console.log('Cleaning up audio resources');
+      
+      // Stop any ongoing playback
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+        audioElement = null;
+        audioElementRef.current = null;
+      }
+      
+      // Release any blob URLs
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+        blobUrl = null;
+      }
+      
+      setIsAudioPlaying(false);
+      setIsAudioLoading(false);
+    };
+  }, [audioSrc]);
+
+  const handleToggleAudio = () => {
+    if (!audioElementRef.current) return;
+    
+    if (isAudioPlaying) {
+      audioElementRef.current.pause();
+      setIsAudioPlaying(false);
+    } else {
+      setIsAudioLoading(true);
+      audioElementRef.current.play().catch(err => {
+        console.error('Failed to play audio:', err);
+        setIsAudioLoading(false);
+      }).then(() => {
+        setIsAudioLoading(false);
+      });
+      setIsAudioPlaying(true);
+    }
+  };
+
+  const handleNextQuestion = () => {
+    if (currentQuestionIndex < questions.length - 1) {
+      // Stop any playing audio before moving to next question
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+      }
+      
+      setCurrentQuestionIndex(prev => prev + 1);
+      setSelectedAnswer(null);
+      setExplanation(null);
+      setIsCorrect(null);
+      setAudioSrc(null);
+      setIsAudioFinished(false);
+      setIsAudioPlaying(false);
+    }
+  };
+
   const handleAnswer = async (answer: string) => {
     if (isValidating || !questions[currentQuestionIndex] || !song) return
 
@@ -104,6 +303,8 @@ export default function QuestionsPage() {
     setIsValidating(true)
     setExplanation('Checking your answer...')
     setIsCorrect(null)
+    setAudioSrc(null) // Reset audio source
+    setIsAudioFinished(false)
 
     try {
       console.log('Sending answer to validate:', answer)
@@ -122,23 +323,23 @@ export default function QuestionsPage() {
       setExplanation(response.isCorrect ? 'Correct!' : response.explanation)
       setIsCorrect(response.isCorrect)
       console.log('Updated explanation to:', response.explanation)
-
-      // Wait a bit before moving to next question
-      setTimeout(() => {
-        console.log('Moving to next question')
-        if (currentQuestionIndex < questions.length - 1) {
-          setCurrentQuestionIndex(prev => prev + 1)
-          setSelectedAnswer(null)
-          setExplanation(null)
-          setIsCorrect(null)
-        }
-      }, 3000) // Increased to 3 seconds to give users more time to read the explanation
+      
+      // Set audio source if available
+      if (response.audioSrc) {
+        console.log('Setting audio source:', response.audioSrc)
+        setAudioSrc(response.audioSrc)
+      } else {
+        // If no audio, mark as finished
+        setIsAudioFinished(true)
+      }
     } catch (err) {
       console.error('Failed to validate answer:', err)
       setError('Failed to check answer')
       setExplanation('Could not validate answer')
       setIsValidating(false) // Make sure to set isValidating to false on error too
       setIsCorrect(null)
+      setAudioSrc(null) // Reset audio source
+      setIsAudioFinished(true)
     }
   }
 
@@ -229,7 +430,10 @@ export default function QuestionsPage() {
 
   return (
     <div className="min-h-screen bg-neutral-900">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Hidden audio element for playing sounds */}
+      <audio ref={audioRef} className="hidden" />
+      
+      <div className="max-w-4xl mx-auto px-4 py-8 pb-24 relative">
         {/* Back button */}
         <div className="mb-8">
           <Link
@@ -285,7 +489,7 @@ export default function QuestionsPage() {
               ))}
             </div>
 
-            {/* Explanation */}
+            {/* Explanation with audio controls */}
             {explanation && (
               <div className={`mt-6 p-4 rounded-lg ${
                 isValidating 
@@ -304,10 +508,54 @@ export default function QuestionsPage() {
                     {explanation}
                   </p>
                 </div>
+                
+                {/* Audio controls */}
+                {audioSrc && !isValidating && (
+                  <div className="mt-3 flex items-center">
+                    <button
+                      onClick={handleToggleAudio}
+                      disabled={isAudioLoading}
+                      className="p-2 rounded-full bg-neutral-700 hover:bg-neutral-600 transition-colors"
+                      aria-label={isAudioPlaying ? "Pause audio" : "Play audio"}
+                    >
+                      {isAudioLoading ? (
+                        <Loading size={16} color="#ffffff" />
+                      ) : isAudioPlaying ? (
+                        <Pause className="w-4 h-4 text-white" />
+                      ) : (
+                        <Play className="w-4 h-4 text-white" />
+                      )}
+                    </button>
+                    <span className="ml-2 text-sm text-neutral-400">
+                      {isAudioLoading ? "Loading audio..." : isAudioPlaying ? "Playing audio..." : "Play audio"}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
+        
+        {/* Next button - fixed at bottom */}
+        {selectedAnswer && !isValidating && (
+          <div className="fixed bottom-0 left-0 right-0 bg-neutral-900 border-t border-neutral-800 p-4">
+            <div className="max-w-4xl mx-auto">
+              <Button
+                onClick={handleNextQuestion}
+                disabled={currentQuestionIndex >= questions.length - 1}
+                className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg"
+              >
+                {currentQuestionIndex >= questions.length - 1 ? (
+                  "Completed"
+                ) : (
+                  <div className="flex items-center justify-center gap-2">
+                    Next <ChevronRight className="w-5 h-5" />
+                  </div>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
