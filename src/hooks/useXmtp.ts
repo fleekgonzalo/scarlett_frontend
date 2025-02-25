@@ -55,7 +55,11 @@ export function useXmtp() {
   const [initAttempts, setInitAttempts] = useState(0)
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [pendingAnswers, setPendingAnswers] = useState<Map<string, (result: any) => void>>(new Map())
-  const [latestResponse, setLatestResponse] = useState<{timestamp: number, response: {isCorrect: boolean, explanation: string}} | null>(null)
+  const [latestResponse, setLatestResponse] = useState<{
+    timestamp: number, 
+    response: {isCorrect: boolean, explanation: string},
+    uuid?: string
+  } | null>(null)
   const MAX_INIT_ATTEMPTS = 5
 
   // Load message history when client is initialized
@@ -66,6 +70,14 @@ export function useXmtp() {
       setConversation(conversation)
       
       const history = await conversation.messages()
+      console.log('Raw message history:', history.map(msg => ({
+        id: msg.id,
+        senderInboxId: msg.senderInboxId,
+        clientInboxId: xmtp.inboxId,
+        contentPreview: typeof msg.content === 'string' 
+          ? msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '')
+          : 'non-string content'
+      })))
       
       // Convert XMTP messages to our format with proper typing
       const formattedMessages = history
@@ -77,10 +89,27 @@ export function useXmtp() {
           }
           return true
         })
-        .map(msg => ({
-          role: msg.senderInboxId === xmtp.inboxId ? 'user' as const : 'assistant' as const,
-          content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-        }))
+        .map(msg => {
+          // Check if this is from the tutor bot
+          const isFromTutorBot = msg.senderInboxId && 
+                                TUTOR_BOT_ADDRESS && 
+                                msg.senderInboxId.toLowerCase().includes(TUTOR_BOT_ADDRESS.toLowerCase());
+          
+          // Determine the role based on sender
+          const role = isFromTutorBot || msg.senderInboxId !== xmtp.inboxId 
+            ? 'assistant' as const 
+            : 'user' as const;
+            
+          console.log('Message role determined as:', role, 
+                      'isFromTutorBot:', isFromTutorBot, 
+                      'senderInboxId:', msg.senderInboxId, 
+                      'clientInboxId:', xmtp.inboxId)
+            
+          return {
+            role,
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          }
+        })
 
       console.log('Loaded messages:', formattedMessages)
       setMessages(formattedMessages)
@@ -98,14 +127,30 @@ export function useXmtp() {
     }
 
     console.log('Received message:', {
-      content: message.content,
+      content: typeof message.content === 'string' 
+        ? message.content.substring(0, 50) + (message.content.length > 50 ? '...' : '')
+        : 'non-string content',
       senderInboxId: message.senderInboxId,
+      clientInboxId: client?.inboxId,
       id: message.id,
       sentAt: new Date(Number(message.sentAtNs / BigInt(1000000))).toISOString()
     })
 
-    // Skip messages sent by the client
-    if (message.senderInboxId === client?.inboxId) {
+    // Check if this is from the tutor bot
+    const isFromTutorBot = message.senderInboxId && 
+                          TUTOR_BOT_ADDRESS && 
+                          message.senderInboxId.toLowerCase().includes(TUTOR_BOT_ADDRESS.toLowerCase());
+    
+    console.log('Message source check:', {
+      isFromTutorBot,
+      senderInboxId: message.senderInboxId,
+      TUTOR_BOT_ADDRESS,
+      clientInboxId: client?.inboxId,
+      isSenderClient: message.senderInboxId === client?.inboxId
+    });
+
+    // Skip messages sent by the client (but not from the tutor bot)
+    if (message.senderInboxId === client?.inboxId && !isFromTutorBot) {
       console.log('Skipping message sent by client')
       return
     }
@@ -116,15 +161,20 @@ export function useXmtp() {
       return
     }
 
-    // Format the message content
+    // Format the message content - always treat messages from tutor as assistant
     const formattedMessage = {
-      role: 'assistant' as const,
-      content: message.content
+      role: isFromTutorBot || message.senderInboxId !== client?.inboxId ? 'assistant' as const : 'user' as const,
+      content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
     }
 
-    // Check if the message is a duplicate
+    console.log('Message role determined as:', formattedMessage.role, 
+                'isFromTutorBot:', isFromTutorBot, 
+                'senderInboxId:', message.senderInboxId, 
+                'clientInboxId:', client?.inboxId)
+
+    // Check if the message is a duplicate by comparing content and role
     const isDuplicate = messages.some(
-      (msg) => msg.content === message.content && msg.role === 'assistant'
+      (msg) => msg.content === formattedMessage.content && msg.role === formattedMessage.role
     )
 
     if (isDuplicate) {
@@ -132,6 +182,7 @@ export function useXmtp() {
       return
     }
 
+    console.log('Adding message to state:', formattedMessage)
     // Add the message to the state
     setMessages((prev) => [...prev, formattedMessage])
 
@@ -237,6 +288,16 @@ export function useXmtp() {
           try {
             for await (const message of stream) {
               if (message) {
+                console.log('Stream received message:', {
+                  id: message.id,
+                  senderInboxId: message.senderInboxId,
+                  clientInboxId: client.inboxId,
+                  contentPreview: typeof message.content === 'string' 
+                    ? message.content.substring(0, 50) + (message.content.length > 50 ? '...' : '')
+                    : 'non-string content'
+                });
+                
+                // Process the message
                 handleIncomingMessage(message)
               
                 // Check if there are any pending answers that need to be resolved
@@ -249,7 +310,7 @@ export function useXmtp() {
                       ? message.content 
                       : JSON.parse(typeof message.content === 'string' ? message.content : JSON.stringify(message.content || '{}'))
                     
-                    // If this is an answer validation response, resolve all pending answers
+                    // If this is an answer validation response, resolve matching pending answers
                     if (content && 'correct' in content) {
                       console.log('Found answer validation response in stream:', content)
                       
@@ -259,23 +320,65 @@ export function useXmtp() {
                         explanation: content.explanation || 'No explanation provided'
                       }
                       
-                      // Make a copy of the resolvers before clearing the map
-                      const resolvers = Array.from(pendingAnswers.values())
+                      // Check if we have a UUID in the message
+                      const messageUuid = content.uuid;
+                      console.log('Message UUID:', messageUuid);
                       
-                      // Clear pending answers first to avoid race conditions
-                      setPendingAnswers(new Map())
-                      
-                      // Then resolve all the promises
-                      resolvers.forEach(resolve => {
-                        console.log('Resolving pending answer from stream')
-                        resolve(response)
-                      })
+                      if (messageUuid) {
+                        // Find pending answers that match this UUID
+                        const pendingAnswersArray = Array.from(pendingAnswers.entries());
+                        const matchingPendingAnswers = pendingAnswersArray.filter(([key]) => 
+                          key.includes(messageUuid)
+                        );
+                        
+                        if (matchingPendingAnswers.length > 0) {
+                          console.log(`Found ${matchingPendingAnswers.length} matching pending answers for UUID:`, messageUuid);
+                          
+                          // Resolve matching pending answers
+                          matchingPendingAnswers.forEach(([answerId, resolver]) => {
+                            console.log('Resolving pending answer with ID:', answerId);
+                            resolver(response);
+                            
+                            // Remove the pending answer from the map
+                            pendingAnswers.delete(answerId);
+                          });
+                          
+                          // Update the pending answers state
+                          setPendingAnswers(new Map(pendingAnswers));
+                        } else {
+                          console.log('No matching pending answers found for UUID:', messageUuid);
+                          
+                          // Store the response for later use
+                          setLatestResponse({
+                            timestamp: Date.now(),
+                            response,
+                            uuid: messageUuid
+                          });
+                        }
+                      } else {
+                        // No UUID in the message, resolve all pending answers as fallback
+                        console.log('No UUID in message, resolving all pending answers as fallback');
+                        
+                        // Make a copy of the resolvers before clearing the map
+                        const resolvers = Array.from(pendingAnswers.values());
+                        
+                        // Clear pending answers first to avoid race conditions
+                        setPendingAnswers(new Map());
+                        
+                        // Then resolve all the promises
+                        resolvers.forEach(resolve => {
+                          console.log('Resolving pending answer from stream (fallback)');
+                          resolve(response);
+                        });
+                      }
                     }
                   } catch (e) {
                     // Not JSON or not a response, continue
                     console.log('Message is not a JSON response:', e)
                   }
                 }
+              } else {
+                console.log('Stream received undefined message');
               }
             }
           } catch (err) {
@@ -434,11 +537,17 @@ export function useXmtp() {
           (Date.now() - latestResponse.timestamp < 5000)) {
         // Only use the response if it's for the current question
         const latestContent = typeof latestResponse.response === 'object' && latestResponse.response
-        console.log('Checking cached response:', latestContent)
+        console.log('Checking cached response:', latestContent, 'UUID:', latestResponse.uuid)
         
-        // Clear the latest response to avoid reusing it for future questions
-        setLatestResponse(null)
-        return latestResponse.response
+        // Check if the response is for the current question
+        if (!latestResponse.uuid || latestResponse.uuid === currentQuestionUuid) {
+          console.log('Using cached response for current question')
+          // Clear the latest response to avoid reusing it for future questions
+          setLatestResponse(null)
+          return latestResponse.response
+        } else {
+          console.log('Cached response is for a different question, ignoring')
+        }
       }
       
       // Check if there's a response in the last few messages
