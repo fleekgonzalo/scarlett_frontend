@@ -40,12 +40,23 @@ export default function QuestionsPage() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
   const [explanation, setExplanation] = useState<string | null>(null)
+  const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
 
   // Show loading state while auth or XMTP is initializing
   const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
+
+  // Debug state changes
+  useEffect(() => {
+    console.log('State updated:', { 
+      isValidating, 
+      selectedAnswer, 
+      explanation,
+      currentQuestionIndex
+    })
+  }, [isValidating, selectedAnswer, explanation, currentQuestionIndex])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -86,33 +97,48 @@ export default function QuestionsPage() {
   const handleAnswer = async (answer: string) => {
     if (isValidating || !questions[currentQuestionIndex] || !song) return
 
+    const currentQuestionUuid = questions[currentQuestionIndex].uuid
+    console.log('Answering question with UUID:', currentQuestionUuid)
+
     setSelectedAnswer(answer)
     setIsValidating(true)
     setExplanation('Checking your answer...')
+    setIsCorrect(null)
 
     try {
+      console.log('Sending answer to validate:', answer)
       const response = await sendAnswer({
-        uuid: questions[currentQuestionIndex].uuid,
+        uuid: currentQuestionUuid,
         selectedAnswer: answer,
         songId: String(song.id)
       })
+      console.log('Received validation response:', response)
 
-      setExplanation(response.explanation)
+      // Force a re-render to ensure the UI updates
+      // Set isValidating to false immediately when we get a response
+      setIsValidating(false)
+      
+      // Update the explanation with the response
+      setExplanation(response.isCorrect ? 'Correct!' : response.explanation)
+      setIsCorrect(response.isCorrect)
+      console.log('Updated explanation to:', response.explanation)
 
       // Wait a bit before moving to next question
       setTimeout(() => {
+        console.log('Moving to next question')
         if (currentQuestionIndex < questions.length - 1) {
           setCurrentQuestionIndex(prev => prev + 1)
           setSelectedAnswer(null)
           setExplanation(null)
+          setIsCorrect(null)
         }
-      }, 2000)
+      }, 3000) // Increased to 3 seconds to give users more time to read the explanation
     } catch (err) {
       console.error('Failed to validate answer:', err)
       setError('Failed to check answer')
       setExplanation('Could not validate answer')
-    } finally {
-      setIsValidating(false)
+      setIsValidating(false) // Make sure to set isValidating to false on error too
+      setIsCorrect(null)
     }
   }
 
@@ -264,13 +290,19 @@ export default function QuestionsPage() {
               <div className={`mt-6 p-4 rounded-lg ${
                 isValidating 
                   ? 'bg-neutral-700' 
-                  : selectedAnswer 
-                  ? 'bg-blue-600/20 border border-blue-600' 
+                  : selectedAnswer && isCorrect
+                  ? 'bg-green-600/20 border border-green-600'
+                  : selectedAnswer
+                  ? 'bg-red-600/20 border border-red-600' 
                   : 'bg-neutral-700'
               }`}>
                 <div className="flex items-center gap-3">
-                  {isValidating && <Loading size={20} color="#3B82F6" />}
-                  <p className="text-white">{explanation}</p>
+                  {isValidating ? (
+                    <Loading size={20} color="#3B82F6" />
+                  ) : null}
+                  <p className="text-white" key={`explanation-${currentQuestionIndex}-${explanation}-${Date.now()}`}>
+                    {explanation}
+                  </p>
                 </div>
               </div>
             )}

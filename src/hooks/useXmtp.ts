@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Client, type Signer, Conversation } from '@xmtp/browser-sdk'
+import { Client, type Signer, Conversation, DecodedMessage } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
 
 const TUTOR_BOT_ADDRESS = '0x8987FEc2e8f2EA74e93B94d4C2Ab553a05F025fF'
 const ENCODING = 'binary'
 
 // Helper functions for key storage
-const buildLocalStorageKey = (walletAddress: string) => 
+const buildLocalStorageKey = (walletAddress: string): string => 
   walletAddress ? `xmtp:dev:keys:${walletAddress}` : ''
 
 const loadKeys = (walletAddress: string): Uint8Array | null => {
@@ -55,6 +55,7 @@ export function useXmtp() {
   const [initAttempts, setInitAttempts] = useState(0)
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [pendingAnswers, setPendingAnswers] = useState<Map<string, (result: any) => void>>(new Map())
+  const [latestResponse, setLatestResponse] = useState<{timestamp: number, response: {isCorrect: boolean, explanation: string}} | null>(null)
   const MAX_INIT_ATTEMPTS = 5
 
   // Load message history when client is initialized
@@ -89,83 +90,132 @@ export function useXmtp() {
     }
   }
 
-  // Process incoming message and handle answer validation
-  const handleIncomingMessage = (message: any, clientInboxId: string) => {
-    if (!message) return
-    
+  // Handle incoming messages
+  const handleIncomingMessage = async (message: DecodedMessage) => {
+    if (!message) {
+      console.log('Received undefined message, skipping')
+      return
+    }
+
     console.log('Received message:', {
       content: message.content,
-      sender: message.senderInboxId,
+      senderInboxId: message.senderInboxId,
       id: message.id,
       sentAt: new Date(Number(message.sentAtNs / BigInt(1000000))).toISOString()
     })
-    
-    // Skip our own messages
-    if (message.senderInboxId === clientInboxId) {
-      console.log('Skipping own message')
+
+    // Skip messages sent by the client
+    if (message.senderInboxId === client?.inboxId) {
+      console.log('Skipping message sent by client')
       return
     }
-    
+
     // Skip system messages
-    if (isSystemMessage(message.content)) {
-      console.log('Skipping system message:', message.content)
+    if (message.contentType.typeId === 'system') {
+      console.log('Skipping system message')
       return
     }
-    
+
     // Format the message content
-    const messageContent = typeof message.content === 'string' 
-      ? message.content 
-      : JSON.stringify(message.content)
-    
-    // Check if this is a duplicate message
-    const isDuplicate = messages.some(m => 
-      m.role === 'assistant' && 
-      m.content === messageContent
+    const formattedMessage = {
+      role: 'assistant' as const,
+      content: message.content
+    }
+
+    // Check if the message is a duplicate
+    const isDuplicate = messages.some(
+      (msg) => msg.content === message.content && msg.role === 'assistant'
     )
-    
+
     if (isDuplicate) {
-      console.log('Message already exists, skipping')
+      console.log('Skipping duplicate message')
       return
     }
-    
-    console.log('Adding new message to state:', messageContent)
-    
-    // Add message to state
-    setMessages(prev => [...prev, { 
-      role: 'assistant', 
-      content: messageContent 
-    }])
-    
-    // Check if this is a response to a pending answer
+
+    // Add the message to the state
+    setMessages((prev) => [...prev, formattedMessage])
+
+    // Check if this is an answer validation response
     try {
-      // Try to parse the content as JSON
-      let parsedContent
-      try {
-        parsedContent = typeof message.content === 'object' 
-          ? message.content 
-          : JSON.parse(messageContent)
-      } catch (e) {
-        // Not JSON, ignore for answer validation
-        return
-      }
+      const parsedContent = JSON.parse(message.content)
       
-      // Check if this is an answer validation response
+      // If this is a response to an answer validation request
       if ('correct' in parsedContent) {
-        console.log('Found answer validation response:', parsedContent)
+        console.log('Received answer validation response:', parsedContent)
         
-        // Resolve all pending answers - the most recent one is likely the one we want
-        pendingAnswers.forEach((resolve) => {
-          resolve({
-            isCorrect: parsedContent.correct,
-            explanation: parsedContent.explanation || 'No explanation provided'
+        // Create a response object
+        const response = {
+          isCorrect: parsedContent.correct,
+          explanation: parsedContent.explanation || 'No explanation provided'
+        }
+        
+        // Check if we have any pending answers
+        if (pendingAnswers.size > 0) {
+          console.log('Current pendingAnswers size:', pendingAnswers.size)
+          
+          // Find the matching request in recent messages
+          const recentMessages = messages.slice(-20);
+          const requestMessage = recentMessages.find(msg => 
+            msg.role === 'user' && 
+            msg.content.includes('"uuid"') && 
+            msg.content.includes('"selectedAnswer"')
+          );
+          
+          if (requestMessage) {
+            try {
+              // Parse the request to get the UUID
+              const requestContent = JSON.parse(requestMessage.content);
+              const requestUuid = requestContent.uuid;
+              console.log('Found matching request with UUID:', requestUuid);
+              
+              // Find pending answers that match this UUID
+              const pendingAnswersArray = Array.from(pendingAnswers.entries());
+              const matchingPendingAnswer = pendingAnswersArray.find(([key]) => 
+                key.includes(requestUuid)
+              );
+              
+              if (matchingPendingAnswer) {
+                const [answerId, resolver] = matchingPendingAnswer;
+                console.log('Resolving pending answer with ID:', answerId);
+                
+                // Resolve the promise with the response
+                resolver(response);
+                
+                // Remove the pending answer from the map
+                const newPendingAnswers = new Map(pendingAnswers);
+                newPendingAnswers.delete(answerId);
+                setPendingAnswers(newPendingAnswers);
+                
+                return;
+              } else {
+                console.log('No matching pending answer found for UUID:', requestUuid);
+              }
+            } catch (e) {
+              console.error('Error parsing request message:', e);
+            }
+          }
+          
+          // If we couldn't find a matching request or couldn't parse it,
+          // resolve all pending answers as a fallback
+          console.log('Resolving all pending answers as fallback');
+          pendingAnswers.forEach((resolver, answerId) => {
+            console.log('Resolving pending answer with ID:', answerId);
+            resolver(response);
+          });
+          
+          // Clear all pending answers
+          setPendingAnswers(new Map());
+        } else {
+          console.log('No pending answers, storing response for later use')
+          // Store the response for later use
+          setLatestResponse({
+            timestamp: Date.now(),
+            response
           })
-        })
-        
-        // Clear pending answers
-        setPendingAnswers(new Map())
+        }
       }
-    } catch (err) {
-      console.error('Error processing message for answer validation:', err)
+    } catch (e) {
+      // Not JSON or not a response, ignore
     }
   }
 
@@ -186,7 +236,47 @@ export function useXmtp() {
         (async () => {
           try {
             for await (const message of stream) {
-              handleIncomingMessage(message, client.inboxId || '')
+              if (message) {
+                handleIncomingMessage(message)
+              
+                // Check if there are any pending answers that need to be resolved
+                if (pendingAnswers.size > 0) {
+                  console.log('Checking if this message resolves any pending answers...')
+                  
+                  // Try to parse the message content
+                  try {
+                    const content = typeof message.content === 'object' 
+                      ? message.content 
+                      : JSON.parse(typeof message.content === 'string' ? message.content : JSON.stringify(message.content || '{}'))
+                    
+                    // If this is an answer validation response, resolve all pending answers
+                    if (content && 'correct' in content) {
+                      console.log('Found answer validation response in stream:', content)
+                      
+                      // Create a response object
+                      const response = {
+                        isCorrect: content.correct,
+                        explanation: content.explanation || 'No explanation provided'
+                      }
+                      
+                      // Make a copy of the resolvers before clearing the map
+                      const resolvers = Array.from(pendingAnswers.values())
+                      
+                      // Clear pending answers first to avoid race conditions
+                      setPendingAnswers(new Map())
+                      
+                      // Then resolve all the promises
+                      resolvers.forEach(resolve => {
+                        console.log('Resolving pending answer from stream')
+                        resolve(response)
+                      })
+                    }
+                  } catch (e) {
+                    // Not JSON or not a response, continue
+                    console.log('Message is not a JSON response:', e)
+                  }
+                }
+              }
             }
           } catch (err) {
             console.error('Stream iteration error:', err);
@@ -209,7 +299,7 @@ export function useXmtp() {
         streamCloser();
       }
     };
-  }, [client, conversation]);
+  }, [client, conversation, pendingAnswers]);
 
   // Initialize XMTP client when wallet is connected
   useEffect(() => {
@@ -334,41 +424,157 @@ export function useXmtp() {
       // Add message to local state immediately (optimistic update)
       setMessages(prev => [...prev, { role: 'user', content: message }])
       
-      // Create a promise that will be resolved when we get a response
-      const responsePromise = new Promise<{ isCorrect: boolean; explanation: string }>((resolve) => {
-        // Generate a unique ID for this answer
-        const answerId = `${questionAnswer.uuid}-${Date.now()}`
+      // Store the current question UUID to verify responses
+      const currentQuestionUuid = questionAnswer.uuid
+      console.log('Current question UUID:', currentQuestionUuid)
+      
+      // Check if we already have a response for this question
+      // If the response was received in the last 5 seconds, use it immediately
+      if (latestResponse && 
+          (Date.now() - latestResponse.timestamp < 5000)) {
+        // Only use the response if it's for the current question
+        const latestContent = typeof latestResponse.response === 'object' && latestResponse.response
+        console.log('Checking cached response:', latestContent)
         
-        // Store the resolver function
-        setPendingAnswers(prev => {
-          const newMap = new Map(prev)
-          newMap.set(answerId, resolve)
-          return newMap
-        })
-        
-        // Set a timeout to clean up if we don't get a response
-        setTimeout(() => {
-          setPendingAnswers(prev => {
-            const newMap = new Map(prev)
-            if (newMap.has(answerId)) {
-              console.log('Answer timed out, resolving with default response')
-              resolve({
-                isCorrect: false,
-                explanation: 'No response received from tutor within timeout period'
-              })
-              newMap.delete(answerId)
+        // Clear the latest response to avoid reusing it for future questions
+        setLatestResponse(null)
+        return latestResponse.response
+      }
+      
+      // Check if there's a response in the last few messages
+      // This handles the case where the response arrived before we created the promise
+      const recentMessages = messages.slice(-10);
+      for (const msg of recentMessages) {
+        if (msg.role === 'assistant') {
+          try {
+            const content = JSON.parse(msg.content);
+            if ('correct' in content) {
+              console.log('Found potential response in recent messages:', content);
+              
+              // Check if this response corresponds to our current question
+              // Look for the matching request in recent messages
+              const requestIndex = recentMessages.findIndex(m => 
+                m.role === 'user' && 
+                m.content.includes(currentQuestionUuid)
+              );
+              
+              // If we found a matching request, and this response comes after it
+              if (requestIndex !== -1) {
+                const responseIndex = recentMessages.indexOf(msg);
+                if (responseIndex > requestIndex) {
+                  console.log('Response matches current question request');
+                  const response = {
+                    isCorrect: content.correct,
+                    explanation: content.explanation || 'No explanation provided'
+                  };
+                  return response;
+                } else {
+                  console.log('Response is from a previous question, ignoring');
+                }
+              } else {
+                console.log('No matching request found for this response, ignoring');
+              }
             }
-            return newMap
-          })
-        }, 30000)
-      })
+          } catch (e) {
+            // Not JSON or not a response, continue checking
+          }
+        }
+      }
+      
+      // Create a resolver that will be used to resolve the promise
+      let resolvePromise: (value: { isCorrect: boolean; explanation: string }) => void;
+      
+      // Create a promise that will be resolved when we get a response
+      const responsePromise = new Promise<{ isCorrect: boolean; explanation: string }>(resolve => {
+        resolvePromise = resolve;
+      });
+      
+      // Generate a unique ID for this answer that includes the question UUID
+      const answerId = `${questionAnswer.uuid}-${Date.now()}`
+      console.log('Created pending answer with ID:', answerId)
+      
+      // Store the resolver function in a variable we can access immediately
+      const pendingAnswersMap = new Map(pendingAnswers);
+      pendingAnswersMap.set(answerId, resolvePromise!);
+      console.log('Added resolver to pendingAnswers map, size now:', pendingAnswersMap.size);
+      
+      // Update the state
+      setPendingAnswers(pendingAnswersMap);
+      
+      // Create a direct reference to the latest messages for checking
+      const currentMessages = [...messages];
+      
+      // Set a timeout to check for responses in case the stream misses it
+      const timeoutId = setTimeout(() => {
+        console.log('Checking for missed responses...');
+        
+        // Check if any new messages have arrived that might be responses
+        const newMessages = messages.filter(msg => !currentMessages.includes(msg));
+        
+        for (const msg of newMessages) {
+          if (msg.role === 'assistant') {
+            try {
+              const content = JSON.parse(msg.content);
+              if ('correct' in content) {
+                console.log('Found missed response in messages:', content);
+                
+                // Check if this is for our current question
+                // Look for the matching request in recent messages
+                const requestIndex = messages.findIndex(m => 
+                  m.role === 'user' && 
+                  m.content.includes(currentQuestionUuid)
+                );
+                
+                // If we found a matching request, and this response comes after it
+                if (requestIndex !== -1) {
+                  const responseIndex = messages.indexOf(msg);
+                  if (responseIndex > requestIndex) {
+                    console.log('Response matches current question request');
+                    resolvePromise({
+                      isCorrect: content.correct,
+                      explanation: content.explanation || 'No explanation provided'
+                    });
+                    
+                    // Clear the pending answer
+                    setPendingAnswers(prev => {
+                      const newMap = new Map(prev);
+                      newMap.delete(answerId);
+                      return newMap;
+                    });
+                    
+                    return; // Exit the timeout handler
+                  } else {
+                    console.log('Response is from a previous question, ignoring');
+                  }
+                }
+              }
+            } catch (e) {
+              // Not JSON or not a response, continue checking
+            }
+          }
+        }
+        
+        // If we get here, no response was found
+        console.log('No response found in messages, resolving with timeout');
+        resolvePromise({
+          isCorrect: false,
+          explanation: 'No response received from tutor within timeout period'
+        });
+        
+        // Clear the pending answer
+        setPendingAnswers(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(answerId);
+          return newMap;
+        });
+      }, 30000);
       
       // Send the message
-      await conversation.send(message)
-      console.log('Answer sent successfully')
+      await conversation.send(message);
+      console.log('Answer sent successfully, waiting for response...');
       
       // Return the promise that will be resolved when we get a response
-      return responsePromise
+      return responsePromise;
     } catch (err) {
       console.error('Failed to send answer:', err)
       if (err instanceof Error) {
