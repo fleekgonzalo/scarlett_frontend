@@ -6,7 +6,7 @@ import { useAccount, useSignMessage } from 'wagmi'
 import { useSubscription } from '@/context/SubscriptionContext'
 import { SubscriptionTier } from '@/services/unlock'
 
-const TUTOR_BOT_ADDRESS = '0x81b185387Fc4de811b7dd5cECeEC27A308E39E8B'
+const TUTOR_BOT_ADDRESS = '0x3e506025BaEB9BAA8001218D37B329dC030576C9'
 const ENCODING = 'binary'
 
 // Helper functions for key storage

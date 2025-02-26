@@ -8,9 +8,11 @@ import { useAuth } from '@/hooks/useAuth'
 import { useXmtp } from '@/hooks/useXmtp'
 import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
+import useTranslation from '@/hooks/useTranslation'
 
 export default function Home() {
   const { locale = 'en' } = useParams()
+  const { t } = useTranslation()
   const { songs, isLoading } = useSongs()
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading } = useXmtp()
@@ -24,7 +26,7 @@ export default function Home() {
         <div className="text-center space-y-4">
           <Loading size={32} color="#3B82F6" />
           <p className="text-neutral-400">
-            {isXmtpLoading ? 'Initializing secure chat...' : 'Loading...'}
+            {isXmtpLoading ? t('chat.initializing') : t('chat.loading')}
           </p>
         </div>
       </div>
@@ -38,13 +40,13 @@ export default function Home() {
         {/* Songs Section - Top Half */}
         <section className="pb-6 border-b border-neutral-800">
           <h2 className="text-xl font-semibold mb-4 text-white">
-            {locale === 'en' ? 'Available Songs' : '可用歌曲'}
+            {t('home.availableSongs')}
           </h2>
           <div className="overflow-x-auto pb-4">
             <div className="flex gap-4">
               {isLoading ? (
                 <div className="flex items-center justify-center w-full h-48">
-                  <p className="text-neutral-400">Loading songs...</p>
+                  <p className="text-neutral-400">{t('home.loadingSongs')}</p>
                 </div>
               ) : songs.length > 0 ? (
                 songs.map(song => (
@@ -56,7 +58,7 @@ export default function Home() {
                 ))
               ) : (
                 <div className="flex items-center justify-center w-full h-48">
-                  <p className="text-neutral-400">No songs available</p>
+                  <p className="text-neutral-400">{t('home.noSongsAvailable')}</p>
                 </div>
               )}
             </div>
@@ -68,17 +70,14 @@ export default function Home() {
           {!isAuthenticated ? (
             <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg bg-neutral-800">
               <p className="text-lg text-white mb-4">
-                {locale === 'en' 
-                  ? 'Sign in to start chatting with your AI language tutor'
-                  : '登录以开始与您的AI语言导师聊天'
-                }
+                {t('home.signInPrompt')}
               </p>
               <Button
                 onClick={login}
                 size="lg"
                 className="bg-blue-600 hover:bg-blue-700"
               >
-                {locale === 'en' ? 'Sign In' : '登录'}
+                {t('nav.signIn')}
               </Button>
             </div>
           ) : (

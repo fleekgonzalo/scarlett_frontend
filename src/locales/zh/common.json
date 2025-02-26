@@ -1,0 +1,59 @@
+{
+  "app": {
+    "title": "Scarlett AI",
+    "description": "通过音乐学习语言"
+  },
+  "nav": {
+    "home": "首页",
+    "songs": "歌曲",
+    "chat": "聊天",
+    "profile": "个人资料",
+    "signIn": "登录",
+    "signOut": "退出"
+  },
+  "home": {
+    "availableSongs": "可用歌曲",
+    "noSongsAvailable": "没有可用的歌曲",
+    "loadingSongs": "加载歌曲中...",
+    "signInPrompt": "登录以开始与您的AI语言导师聊天"
+  },
+  "chat": {
+    "placeholder": "在这里输入您的消息...",
+    "send": "发送",
+    "loading": "加载聊天中...",
+    "initializing": "初始化安全聊天...",
+    "emptyState": "开始与您的AI语言导师对话"
+  },
+  "songs": {
+    "play": "播放",
+    "lyrics": "歌词",
+    "translation": "翻译",
+    "artist": "艺术家",
+    "album": "专辑",
+    "genre": "流派",
+    "language": "语言",
+    "failedToLoad": "加载歌曲失败。请稍后再试。",
+    "notFound": "未找到歌曲",
+    "tryAgain": "重试",
+    "cefrLevel": "CEFR等级",
+    "wordsPerSecond": "字/秒",
+    "topWords": "常用词",
+    "study": "学习",
+    "failedToLoadAudio": "加载音频文件失败",
+    "invalidLyricsFormat": "歌词格式无效 - 歌词属性应为数组",
+    "unknownError": "未知错误",
+    "failedToParseLyrics": "解析歌词数据失败",
+    "failedToPlayAudio": "播放音频失败",
+    "failedToLoadContent": "加载内容失败",
+    "loadingQuestions": "加载问题中...",
+    "signInRequired": "需要登录",
+    "signInToStudy": "登录以开始通过这首歌学习"
+  },
+  "subscription": {
+    "premium": "高级版",
+    "free": "免费版",
+    "upgrade": "升级到高级版",
+    "premiumFeatures": "获取高级功能",
+    "currentPlan": "当前计划"
+  }
+} 

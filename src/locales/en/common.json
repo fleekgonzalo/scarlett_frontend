@@ -1,0 +1,59 @@
+{
+  "app": {
+    "title": "Scarlett AI",
+    "description": "Learn Language Through Music"
+  },
+  "nav": {
+    "home": "Home",
+    "songs": "Songs",
+    "chat": "Chat",
+    "profile": "Profile",
+    "signIn": "Sign In",
+    "signOut": "Sign Out"
+  },
+  "home": {
+    "availableSongs": "Available Songs",
+    "noSongsAvailable": "No songs available",
+    "loadingSongs": "Loading songs...",
+    "signInPrompt": "Sign in to start chatting with your AI language tutor"
+  },
+  "chat": {
+    "placeholder": "Type your message here...",
+    "send": "Send",
+    "loading": "Loading chat...",
+    "initializing": "Initializing secure chat...",
+    "emptyState": "Start a conversation with your AI language tutor"
+  },
+  "songs": {
+    "play": "Play",
+    "lyrics": "Lyrics",
+    "translation": "Translation",
+    "artist": "Artist",
+    "album": "Album",
+    "genre": "Genre",
+    "language": "Language",
+    "failedToLoad": "Failed to load song. Please try again later.",
+    "notFound": "Song not found",
+    "tryAgain": "Try Again",
+    "cefrLevel": "CEFR level",
+    "wordsPerSecond": "words/sec",
+    "topWords": "top words",
+    "study": "Study",
+    "failedToLoadAudio": "Failed to load audio file",
+    "invalidLyricsFormat": "Invalid lyrics format - lyrics property should be an array",
+    "unknownError": "Unknown error",
+    "failedToParseLyrics": "Failed to parse lyrics data",
+    "failedToPlayAudio": "Failed to play audio",
+    "failedToLoadContent": "Failed to load content",
+    "loadingQuestions": "Loading questions...",
+    "signInRequired": "Sign in required",
+    "signInToStudy": "Sign in to start learning with this song"
+  },
+  "subscription": {
+    "premium": "Premium",
+    "free": "Free",
+    "upgrade": "Upgrade to Premium",
+    "premiumFeatures": "Get access to premium features",
+    "currentPlan": "Current Plan"
+  }
+} 

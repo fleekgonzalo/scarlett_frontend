@@ -16,6 +16,7 @@ import { FSRSService, fsrsService } from '@/services/fsrs'
 import { Card } from 'ts-fsrs'
 import IrysService from '@/services/irys'
 import type { UserProgress as FSRSUserProgress } from '@/services/fsrs'
+import useTranslation from '@/hooks/useTranslation'
 
 interface Question {
   uuid: string
@@ -69,6 +70,7 @@ export default function QuestionsPage() {
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
   const router = useRouter()
   const [fsrsState, setFsrsState] = useState<FSRSState>({ cards: new Map() });
+  const { t } = useTranslation()
 
   // Show loading state while auth or XMTP is initializing
   const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
@@ -171,7 +173,7 @@ export default function QuestionsPage() {
         }
       } catch (err) {
         console.error('[Questions Page] Error fetching data:', err);
-        setError('Failed to load content');
+        setError(t('songs.failedToLoadContent'));
       } finally {
         setIsLoading(false);
         console.log(`[Questions Page] fetchData completed`);
@@ -179,7 +181,7 @@ export default function QuestionsPage() {
     };
 
     fetchData()
-  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized, params?.locale, user?.id])
+  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized, params?.locale, user?.id, t])
 
   // Play audio when audioSrc changes
   useEffect(() => {
@@ -479,94 +481,49 @@ export default function QuestionsPage() {
     }
   };
 
-  if (isInitializing) {
+  // Render loading state
+  if (isLoading || isInitializing) {
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loading size={32} color="#3B82F6" />
-          <p className="text-neutral-400">
-            {isXmtpLoading ? 'Initializing secure chat...' : 'Loading...'}
-          </p>
+        <div className="text-center">
+          <Loading size={48} color="#ffffff" />
+          <p className="mt-4 text-white">{t('songs.loadingQuestions')}</p>
         </div>
       </div>
-    )
+    );
   }
 
+  // Render error state
+  if (error || !song) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">{error || t('songs.notFound')}</p>
+          <Button 
+            onClick={() => window.location.reload()}
+            variant="ghost"
+            className="text-white hover:bg-neutral-800"
+          >
+            {t('songs.tryAgain')}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Render authentication prompt if not authenticated
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-neutral-900">
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          {/* Back button */}
-          <div className="mb-8">
-            <Link
-              href={`/${params?.locale || 'en'}/songs/${songId}`}
-              className="text-neutral-400 hover:text-white transition-colors"
-            >
-              {params?.locale === 'zh' ? '← 返回歌曲' : '← Back to Song'}
-            </Link>
-          </div>
-
-          <div className="flex flex-col items-center justify-center py-12 text-center rounded-lg bg-neutral-800">
-            <p className="text-lg text-white mb-4">
-              {params?.locale === 'zh' 
-                ? '登录以开始通过这首歌学习' 
-                : 'Sign in to start learning with this song'
-              }
-            </p>
-            <Button
-              onClick={login}
-              size="lg"
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {params?.locale === 'zh' ? '登录' : 'Sign In'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading) {
-    return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Loading size={32} color="#3B82F6" />
-          <p className="text-neutral-400">
-            {params?.locale === 'zh' ? '加载问题中...' : 'Loading questions...'}
-          </p>
+        <div className="text-center max-w-md mx-auto p-6">
+          <h1 className="text-2xl font-bold text-white mb-4">{t('songs.signInRequired')}</h1>
+          <p className="text-gray-300 mb-6">{t('songs.signInToStudy')}</p>
+          <Button onClick={login} className="w-full">
+            {t('nav.signIn')}
+          </Button>
         </div>
       </div>
-    )
-  }
-
-  if (error || !song || !questions.length) {
-    return (
-      <div className="min-h-screen bg-neutral-900">
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          {/* Back button */}
-          <div className="mb-8">
-            <Link
-              href={`/${params?.locale || 'en'}/songs/${songId}`}
-              className="text-neutral-400 hover:text-white transition-colors"
-            >
-              ← {params?.locale === 'zh' ? '返回歌曲' : 'Back to Song'}
-            </Link>
-          </div>
-
-          <div className="text-center py-12">
-            <p className="text-red-400 mb-4">
-              {error || (params?.locale === 'zh' ? '没有可用的问题' : 'No questions available')}
-            </p>
-            <Button 
-              onClick={() => window.location.reload()}
-              variant="outline"
-            >
-              {params?.locale === 'zh' ? '重试' : 'Try Again'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
+    );
   }
 
   const currentQuestion = questions[currentQuestionIndex]

@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+// Supported locales
 const locales = ['en', 'zh']
  
 export function middleware(request: NextRequest) {
-  // Check if there is any supported locale in the pathname
-  const pathname = request.nextUrl.pathname
+  // Get the pathname
+  const { pathname } = request.nextUrl
   
   // Skip if the request is for an asset or API route
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
-    pathname.startsWith('/static')
+    pathname.startsWith('/static') ||
+    pathname.includes('.')
   ) {
     return NextResponse.next()
   }
 
-  // Check if the pathname starts with a locale
+  // Check if the pathname already has a locale
   const pathnameHasLocale = locales.some(
     (locale) => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`
   )

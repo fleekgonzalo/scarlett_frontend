@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Play } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import useTranslation from '@/hooks/useTranslation'
 
 export default function SongPage() {
   const params = useParams()
@@ -16,6 +17,7 @@ export default function SongPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { currentLocale, isLearningChinese } = useLanguageStore()
+  const { t } = useTranslation()
 
   useEffect(() => {
     const fetchSong = async () => {
@@ -27,14 +29,14 @@ export default function SongPage() {
         setSong(data)
       } catch (error) {
         console.error('Error fetching song:', error)
-        setError('Failed to load song. Please try again later.')
+        setError(t('songs.failedToLoad'))
       } finally {
         setIsLoading(false)
       }
     }
     
     fetchSong()
-  }, [params.id])
+  }, [params.id, t])
 
   if (isLoading) {
     return (
@@ -48,13 +50,13 @@ export default function SongPage() {
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error || 'Song not found'}</p>
+          <p className="text-red-400 mb-4">{error || t('songs.notFound')}</p>
           <Button 
             onClick={() => window.location.reload()}
             variant="ghost"
             className="text-white hover:bg-neutral-800"
           >
-            {currentLocale === 'en' ? 'Try Again' : '重试'}
+            {t('songs.tryAgain')}
           </Button>
         </div>
       </div>
@@ -100,28 +102,28 @@ export default function SongPage() {
           <div className="text-2xl font-bold text-white">
             {getCEFRLevel(song.cefr_level)}
           </div>
-          <div className="text-sm text-gray-400">CEFR level</div>
+          <div className="text-sm text-gray-400">{t('songs.cefrLevel')}</div>
         </div>
         
         <div className="space-y-1 text-center bg-neutral-800 p-3 rounded-lg">
           <div className="text-2xl font-bold text-white">
             {song.words_per_second}
           </div>
-          <div className="text-sm text-gray-400">words/sec</div>
+          <div className="text-sm text-gray-400">{t('songs.wordsPerSecond')}</div>
         </div>
         
         <div className="space-y-1 text-center bg-neutral-800 p-3 rounded-lg">
           <div className="text-2xl font-bold text-white">
             {isLearningChinese ? song.unique_words_2 : song.unique_words_1}
           </div>
-          <div className="text-sm text-gray-400">top words</div>
+          <div className="text-sm text-gray-400">{t('songs.topWords')}</div>
         </div>
       </div>
 
       {/* Study button */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-neutral-900 border-t border-neutral-800">
         <Link href={`/${currentLocale}/songs/${song.id}/questions`}>
-          <Button className="w-full">Study</Button>
+          <Button className="w-full">{t('songs.study')}</Button>
         </Link>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Play, Pause } from 'lucide-react'
 import { Loading } from '@/components/ui/loading'
+import useTranslation from '@/hooks/useTranslation'
 
 interface Lyric {
   line: string
@@ -27,6 +28,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const { currentLocale, isLearningChinese } = useLanguageStore()
+  const { t } = useTranslation()
   
   // Add audio ref
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -66,7 +68,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
           
           audio.addEventListener('error', (e) => {
             console.error('Audio loading error:', e)
-            setError('Failed to load audio file')
+            setError(t('songs.failedToLoadAudio'))
             setIsLoadingAudio(false)
           })
           
@@ -108,7 +110,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
               setLyrics(lyricsData.lyrics)
             } else {
               console.error('Invalid lyrics format - expected array:', lyricsData)
-              setError('Invalid lyrics format - lyrics property should be an array')
+              setError(t('songs.invalidLyricsFormat'))
             }
           } catch (parseError) {
             console.error('Error parsing lyrics JSON:', parseError)
@@ -117,13 +119,13 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
               parseError !== null && 
               'message' in parseError
                 ? String(parseError.message)
-                : 'Unknown error'
-            setError(`Failed to parse lyrics data: ${errorMessage}`)
+                : t('songs.unknownError')
+            setError(`${t('songs.failedToParseLyrics')}: ${errorMessage}`)
           }
         }
       } catch (error) {
         console.error('Error fetching song/lyrics:', error)
-        setError('Failed to load song. Please try again later.')
+        setError(t('songs.failedToLoad'))
       } finally {
         setIsLoading(false)
       }
@@ -138,7 +140,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
         audioRef.current.src = ''
       }
     }
-  }, [params.id])
+  }, [params.id, t])
 
   const handlePlayPause = () => {
     if (!audioRef.current) return
@@ -154,7 +156,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
         })
         .catch((error) => {
           console.error('Playback error:', error)
-          setError('Failed to play audio')
+          setError(t('songs.failedToPlayAudio'))
           setIsLoadingAudio(false)
         })
     }
@@ -181,13 +183,13 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
     return (
       <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error || 'Song not found'}</p>
+          <p className="text-red-400 mb-4">{error || t('songs.notFound')}</p>
           <Button 
             onClick={() => window.location.reload()}
             variant="ghost"
             className="text-white hover:bg-neutral-800"
           >
-            {currentLocale === 'en' ? 'Try Again' : '重试'}
+            {t('songs.tryAgain')}
           </Button>
         </div>
       </div>
@@ -250,7 +252,7 @@ export default function PlayPage({ params: paramsPromise }: { params: Promise<{ 
               ) : isPlaying ? (
                 <Pause className="w-8 h-8 text-white" />
               ) : (
-                <Play className="w-8 h-8 text-white ml-1" />
+                <Play className="w-8 h-8 text-white" fill="white" />
               )}
             </Button>
           </div>
