@@ -12,6 +12,10 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Pause, Play, ChevronRight, X } from 'lucide-react'
 import { MultipleChoiceOption } from '@/components/MultipleChoiceOption'
+import { FSRSService, fsrsService } from '@/services/fsrs'
+import { Card } from 'ts-fsrs'
+import IrysService from '@/services/irys'
+import type { UserProgress as FSRSUserProgress } from '@/services/fsrs'
 
 interface Question {
   uuid: string
@@ -29,6 +33,10 @@ interface QuestionAnswer {
   uuid: string
   selectedAnswer: string
   songId: string
+}
+
+interface FSRSState {
+  cards: Map<string, Card>;
 }
 
 export default function QuestionsPage() {
@@ -57,9 +65,10 @@ export default function QuestionsPage() {
     timestamp: number;
   }>>([]);
   
-  const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
+  const { isAuthenticated, isLoading: isAuthLoading, login, user } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
   const router = useRouter()
+  const [fsrsState, setFsrsState] = useState<FSRSState>({ cards: new Map() });
 
   // Show loading state while auth or XMTP is initializing
   const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
@@ -76,43 +85,101 @@ export default function QuestionsPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!songId) return
+      if (!songId || !user?.id) return;
       
       try {
-        setIsLoading(true)
-        setError(null)
+        console.log(`[Questions Page] Starting fetchData for songId=${songId}, userId=${user.id}`);
+        setIsLoading(true);
+        setError(null);
 
         // Fetch song data
-        const tableland = TablelandClient.getInstance()
-        const songData = await tableland.getSong(Number(songId))
-        setSong(songData)
+        const tableland = TablelandClient.getInstance();
+        console.log(`[Questions Page] Fetching song data for songId=${songId}`);
+        const songData = await tableland.getSong(Number(songId));
+        console.log(`[Questions Page] Song data retrieved:`, songData ? 'Success' : 'Failed');
+        setSong(songData);
 
-        // Only fetch questions if we're authenticated and XMTP is initialized
         if (isAuthenticated && isXmtpInitialized && songData) {
-          // If language_1 is "en", then:
-          // - questions_cid_1 is for Chinese speakers learning English (zh locale)
-          // - questions_cid_2 is for English speakers learning Chinese (en locale)
-          // We need to swap the logic to match the locale correctly
-          const questionsCid = params?.locale === 'zh' ? songData.questions_cid_1 : songData.questions_cid_2
-          const response = await fetch(`https://premium.aiozpin.network/ipfs/${questionsCid}`)
+          // Fetch all questions
+          const questionsCid = params?.locale === 'zh' ? 
+            songData.questions_cid_1 : songData.questions_cid_2;
+          console.log(`[Questions Page] Fetching questions from CID=${questionsCid}`);
+          const response = await fetch(`/api/ipfs/${questionsCid}`);
+          const allQuestions = await response.json();
+          console.log(`[Questions Page] Retrieved ${allQuestions.length} questions`);
+
+          // Get previous progress from Irys
+          let previousProgress: FSRSUserProgress | null = null;
+          try {
+            console.log(`[Questions Page] Fetching previous progress from Irys for userId=${user.id}, songId=${songId}`);
+            const irysProgress = await IrysService.getLatestProgress(user.id, songId);
+            console.log(`[Questions Page] Irys progress retrieved:`, irysProgress ? 'Success' : 'Not found');
+            
+            if (irysProgress) {
+              console.log(`[Questions Page] Converting Irys progress to FSRS format`);
+              // Convert IrysService progress to FSRSService progress format
+              previousProgress = {
+                userId: irysProgress.userId,
+                songId: irysProgress.songId,
+                questions: irysProgress.questions.map(q => ({
+                  uuid: q.uuid,
+                  correct: q.correct,
+                  fsrs: q.fsrs && {
+                    ...q.fsrs,
+                    due: new Date(q.fsrs.due),
+                    last_review: q.fsrs.last_review ? new Date(q.fsrs.last_review) : undefined
+                  }
+                })),
+                completedAt: String(irysProgress.completedAt)
+              };
+              console.log(`[Questions Page] Converted progress contains ${previousProgress.questions.length} questions`);
+            }
+          } catch (err) {
+            console.warn('[Questions Page] No previous progress found:', err);
+          }
+
+          // Select questions using FSRS
+          console.log(`[Questions Page] Selecting questions using FSRS`);
+          const selectedQuestions = await fsrsService.selectQuestions(allQuestions, previousProgress);
+          console.log(`[Questions Page] Selected ${selectedQuestions.length} questions using FSRS`);
           
-          if (!response.ok) {
-            throw new Error('Failed to fetch questions')
+          // If no questions were selected by FSRS, use the first 20 questions
+          const finalQuestions = selectedQuestions.length > 0 ? 
+            selectedQuestions : 
+            allQuestions.slice(0, 20);
+          
+          console.log(`[Questions Page] Final question count: ${finalQuestions.length}`);
+          
+          // Initialize FSRS cards
+          console.log(`[Questions Page] Initializing FSRS cards`);
+          const cards = new Map<string, Card>();
+          if (previousProgress?.questions) {
+            previousProgress.questions.forEach(q => {
+              if (q.fsrs) {
+                cards.set(q.uuid, {
+                  ...q.fsrs,
+                  due: new Date(q.fsrs.due),
+                  last_review: q.fsrs.last_review ? new Date(q.fsrs.last_review) : undefined
+                });
+              }
+            });
+            console.log(`[Questions Page] Initialized ${cards.size} FSRS cards`);
           }
           
-          const data = await response.json()
-          setQuestions(data)
+          setFsrsState({ cards });
+          setQuestions(finalQuestions);
         }
       } catch (err) {
-        console.error('Error fetching data:', err)
-        setError('Failed to load content')
+        console.error('[Questions Page] Error fetching data:', err);
+        setError('Failed to load content');
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
+        console.log(`[Questions Page] fetchData completed`);
       }
-    }
+    };
 
     fetchData()
-  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized, params?.locale])
+  }, [songId, isLearningChinese, isAuthenticated, isXmtpInitialized, params?.locale, user?.id])
 
   // Play audio when audioSrc changes
   useEffect(() => {
@@ -344,64 +411,73 @@ export default function QuestionsPage() {
   };
 
   const handleAnswer = async (answer: string) => {
-    if (isValidating || !questions[currentQuestionIndex] || !song) return
+    if (isValidating || !questions[currentQuestionIndex] || !song) return;
 
-    const currentQuestionUuid = questions[currentQuestionIndex].uuid
-    console.log('Answering question with UUID:', currentQuestionUuid)
+    const currentQuestionUuid = questions[currentQuestionIndex].uuid;
+    console.log('Answering question with UUID:', currentQuestionUuid);
 
-    setSelectedAnswer(answer)
-    setIsValidating(true)
-    setExplanation('Checking your answer...')
-    setIsCorrect(null)
-    setAudioSrc(null) // Reset audio source
-    setIsAudioFinished(false)
+    setSelectedAnswer(answer);
+    setIsValidating(true);
+    setExplanation('Checking your answer...');
+    setIsCorrect(null);
+    setAudioSrc(null);
+    setIsAudioFinished(false);
 
     try {
-      console.log('Sending answer to validate:', answer)
+      console.log('Sending answer to validate:', answer);
       const response = await sendAnswer({
         uuid: currentQuestionUuid,
         selectedAnswer: answer,
         songId: String(song.id)
-      })
-      console.log('Received validation response:', response)
+      });
+      console.log('Received validation response:', response);
 
-      // Force a re-render to ensure the UI updates
-      // Set isValidating to false immediately when we get a response
-      setIsValidating(false)
+      setIsValidating(false);
       
-      // Update the explanation with the response
-      setExplanation(response.explanation || (response.isCorrect ? 'Correct!' : 'Incorrect'))
-      setIsCorrect(response.isCorrect)
+      // Update FSRS card
+      const rating = fsrsService.rateAnswer(response.isCorrect);
+      const currentCard = fsrsState.cards.get(currentQuestionUuid);
+      const updatedCard = fsrsService.updateCard(currentCard, rating);
+      
+      // Update FSRS state
+      setFsrsState(prev => {
+        const newCards = new Map(prev.cards);
+        newCards.set(currentQuestionUuid, updatedCard);
+        return { cards: newCards };
+      });
 
-      // Store the answer in the questionAnswers array
+      // Store the answer with FSRS data
       setQuestionAnswers(prev => [
         ...prev,
         {
           uuid: currentQuestionUuid,
           selectedAnswer: answer,
           isCorrect: response.isCorrect,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          fsrs: updatedCard
         }
-      ])
+      ]);
       
-      // Set audio source if available
+      // Update the explanation with the response
+      setExplanation(response.explanation || (response.isCorrect ? 'Correct!' : 'Incorrect'));
+      setIsCorrect(response.isCorrect);
+
       if (response.audioSrc) {
-        console.log('Setting audio source:', response.audioSrc)
-        setAudioSrc(response.audioSrc)
+        console.log('Setting audio source:', response.audioSrc);
+        setAudioSrc(response.audioSrc);
       } else {
-        // If no audio, mark as finished
-        setIsAudioFinished(true)
+        setIsAudioFinished(true);
       }
     } catch (err) {
-      console.error('Failed to validate answer:', err)
-      setError('Failed to check answer')
-      setExplanation('Could not validate answer')
-      setIsValidating(false) // Make sure to set isValidating to false on error too
-      setIsCorrect(null)
-      setAudioSrc(null) // Reset audio source
-      setIsAudioFinished(true)
+      console.error('Failed to validate answer:', err);
+      setError('Failed to check answer');
+      setExplanation('Could not validate answer');
+      setIsValidating(false);
+      setIsCorrect(null);
+      setAudioSrc(null);
+      setIsAudioFinished(true);
     }
-  }
+  };
 
   if (isInitializing) {
     return (

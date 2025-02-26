@@ -8,6 +8,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { CheckCircle, Share2, Database, ArrowRight, Loader2 } from 'lucide-react'
 import IrysService from '@/services/irys'
+import { fsrsService } from '@/services/fsrs'
 
 interface CompletionStats {
   totalQuestions: number
@@ -50,6 +51,13 @@ export default function CompletePage() {
       // Get stored question answers from localStorage
       const questionAnswers = JSON.parse(localStorage.getItem('questionAnswers') || '[]')
       
+      // Get FSRS parameters
+      const fsrsParams = {
+        enable_fuzz: true,
+        maximum_interval: 36500,
+        request_retention: 0.9
+      };
+      
       // Prepare data for Irys
       const progressData = {
         userId: user.id,
@@ -57,18 +65,30 @@ export default function CompletePage() {
         questions: questionAnswers.map((q: any) => ({
           uuid: q.uuid,
           correct: q.isCorrect,
-          timestamp: q.timestamp
+          timestamp: q.timestamp,
+          fsrs: q.fsrs
         })),
         totalCorrect: stats.correctAnswers,
         totalQuestions: stats.totalQuestions,
-        completedAt: stats.completedAt
+        completedAt: stats.completedAt,
+        fsrsMetadata: {
+          version: '3.5.6',
+          parameters: fsrsParams
+        }
       }
+
+      console.log('[Complete Page] Uploading progress to Irys:', progressData);
 
       // Upload to Irys
       const txId = await IrysService.uploadProgress(progressData)
       
+      console.log('[Complete Page] Upload successful, transaction ID:', txId);
       setTransactionId(txId)
       setBackupSuccess(true)
+
+      // Clear localStorage after successful backup
+      localStorage.removeItem('questionStats')
+      localStorage.removeItem('questionAnswers')
     } catch (error) {
       console.error('Error backing up to Irys:', error)
       setBackupError(error instanceof Error ? error.message : 'Failed to backup progress')

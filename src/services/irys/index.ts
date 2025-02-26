@@ -4,6 +4,10 @@ import { WebEthereum } from "@irys/web-upload-ethereum";
 import { ViemV2Adapter } from "@irys/web-upload-ethereum-viem-v2";
 import { createPublicClient, createWalletClient, custom, type Account, getAddress } from "viem";
 import { sepolia } from "viem/chains";
+import type { State } from "ts-fsrs";
+// Remove the import of UserProgress and IrysProgress from fsrs
+// import { Card } from 'ts-fsrs';
+// import type { UserProgress, IrysProgress } from '@/services/fsrs';
 
 // Interface for user progress data
 export interface UserProgress {
@@ -13,6 +17,17 @@ export interface UserProgress {
     uuid: string;
     correct: boolean;
     timestamp: number;
+    fsrs?: {
+      due: string;
+      stability: number;
+      difficulty: number;
+      elapsed_days: number;
+      scheduled_days: number;
+      reps: number;
+      lapses: number;
+      state: State;
+      last_review?: string;
+    };
   }[];
   totalCorrect: number;
   totalQuestions: number;
@@ -34,12 +49,13 @@ interface EthereumProvider {
 // Declare global window with ethereum property
 declare global {
   interface Window {
-    ethereum?: EthereumProvider;
+    ethereum?: EthereumProvider | Record<string, unknown>;
   }
 }
 
 export class IrysService {
   private static instance: IrysService;
+  private webIrys: any;
 
   private constructor() {
     console.log('Initializing IrysService...');
@@ -209,6 +225,37 @@ export class IrysService {
     } catch (error) {
       console.error("Error connecting to Irys:", error);
       throw new Error("Failed to connect to Irys: " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+
+  /**
+   * Get the latest progress for a user and song
+   */
+  public async getLatestProgress(userId: string, songId: string): Promise<UserProgress | null> {
+    console.log(`[IrysService] getLatestProgress called for userId=${userId}, songId=${songId}`);
+    
+    try {
+      // Use the simplified API route with query parameters
+      const url = `/api/irys/progress?userId=${userId}&songId=${songId}`;
+      console.log(`[IrysService] Fetching from API: ${url}`);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error(`[IrysService] API request failed: ${response.statusText}`);
+        throw new Error(`Failed to fetch progress: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`[IrysService] API response received:`, data ? 'Data found' : 'No data found');
+      
+      if (!data) return null;
+
+      // The API now returns data in the correct format, so we can use it directly
+      return data as UserProgress;
+    } catch (error) {
+      console.error('[IrysService] Error fetching progress:', error);
+      return null;
     }
   }
 }
