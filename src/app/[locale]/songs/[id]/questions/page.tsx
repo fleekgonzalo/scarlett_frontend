@@ -1,6 +1,6 @@
 'use client'
 
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState, useRef } from 'react'
 import { TablelandClient, type Song } from '@/services/tableland'
 import { useLanguageStore } from '@/stores/languageStore'
@@ -50,9 +50,16 @@ export default function QuestionsPage() {
   const [isAudioFinished, setIsAudioFinished] = useState(false)
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const [isAudioLoading, setIsAudioLoading] = useState(false)
+  const [questionAnswers, setQuestionAnswers] = useState<Array<{
+    uuid: string;
+    selectedAnswer: string;
+    isCorrect: boolean;
+    timestamp: number;
+  }>>([]);
   
   const { isAuthenticated, isLoading: isAuthLoading, login } = useAuth()
   const { isInitialized: isXmtpInitialized, isLoading: isXmtpLoading, sendAnswer } = useXmtp()
+  const router = useRouter()
 
   // Show loading state while auth or XMTP is initializing
   const isInitializing = isAuthLoading || (isAuthenticated && isXmtpLoading)
@@ -316,6 +323,23 @@ export default function QuestionsPage() {
       setAudioSrc(null);
       setIsAudioFinished(false);
       setIsAudioPlaying(false);
+    } else {
+      // All questions completed, save stats and redirect to completion page
+      const correctAnswers = questionAnswers.filter(q => q.isCorrect).length;
+      
+      // Save stats to localStorage for the completion page
+      const stats = {
+        totalQuestions: questions.length,
+        correctAnswers,
+        songId: song?.id || params?.id,
+        completedAt: Date.now()
+      };
+      
+      localStorage.setItem('questionStats', JSON.stringify(stats));
+      localStorage.setItem('questionAnswers', JSON.stringify(questionAnswers));
+      
+      // Redirect to completion page
+      router.push(`/${params?.locale}/songs/${params?.id}/questions/complete`);
     }
   };
 
@@ -348,7 +372,17 @@ export default function QuestionsPage() {
       // Update the explanation with the response
       setExplanation(response.explanation || (response.isCorrect ? 'Correct!' : 'Incorrect'))
       setIsCorrect(response.isCorrect)
-      console.log('Updated explanation to:', response.explanation)
+
+      // Store the answer in the questionAnswers array
+      setQuestionAnswers(prev => [
+        ...prev,
+        {
+          uuid: currentQuestionUuid,
+          selectedAnswer: answer,
+          isCorrect: response.isCorrect,
+          timestamp: Date.now()
+        }
+      ])
       
       // Set audio source if available
       if (response.audioSrc) {
@@ -575,11 +609,12 @@ export default function QuestionsPage() {
             <div className="max-w-4xl mx-auto">
               <Button
                 onClick={handleNextQuestion}
-                disabled={currentQuestionIndex >= questions.length - 1}
                 className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg"
               >
                 {currentQuestionIndex >= questions.length - 1 ? (
-                  params?.locale === 'zh' ? "已完成" : "Completed"
+                  <div className="flex items-center justify-center gap-2">
+                    {params?.locale === 'zh' ? '完成并查看结果' : 'Complete & View Results'} <ChevronRight className="w-5 h-5" />
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center gap-2">
                     {params?.locale === 'zh' ? '下一题' : 'Next'} <ChevronRight className="w-5 h-5" />
