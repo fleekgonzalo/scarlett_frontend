@@ -27,6 +27,8 @@
     "@reown/appkit": "^1.6.8",
     "@reown/appkit-adapter-wagmi": "^1.6.8",
     "@tanstack/react-query": "^5.66.9",
+    "@unlock-protocol/networks": "^0.0.25",
+    "@unlock-protocol/unlock-js": "^0.51.1",
     "@xmtp/browser-sdk": "^0.0.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,9 +1,4 @@
 // Import types only for TypeScript
-import type { WebUploader } from "@irys/web-upload";
-import { WebEthereum } from "@irys/web-upload-ethereum";
-import { ViemV2Adapter } from "@irys/web-upload-ethereum-viem-v2";
-import { createPublicClient, createWalletClient, custom, type Account, getAddress } from "viem";
-import { sepolia } from "viem/chains";
 import type { State } from "ts-fsrs";
 // Remove the import of UserProgress and IrysProgress from fsrs
 // import { Card } from 'ts-fsrs';
@@ -49,7 +44,7 @@ interface EthereumProvider {
 // Declare global window with ethereum property
 declare global {
   interface Window {
-    ethereum?: EthereumProvider | Record<string, unknown>;
+    ethereum?: Record<string, unknown>;
   }
 }
 

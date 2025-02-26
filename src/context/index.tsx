@@ -1,11 +1,12 @@
 'use client'
 
-import { wagmiAdapter, projectId } from '@/config/wagmi'
+import { wagmiAdapter, projectId, customBaseSepolia } from '@/config/wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createAppKit } from '@reown/appkit/react'
 import { mainnet } from '@reown/appkit/networks'
 import React, { type ReactNode, useEffect, createContext, useContext } from 'react'
 import { cookieToInitialState, WagmiProvider, type Config } from 'wagmi'
+import SubscriptionProvider from './SubscriptionContext'
 
 // Set up queryClient
 const queryClient = new QueryClient()
@@ -28,8 +29,8 @@ const metadata = {
 const appKit = createAppKit({
   adapters: [wagmiAdapter],
   projectId,
-  networks: [mainnet],
-  defaultNetwork: mainnet,
+  networks: [customBaseSepolia],
+  defaultNetwork: customBaseSepolia,
   metadata: metadata,
   features: {
     analytics: false,
@@ -73,7 +74,9 @@ function ContextProvider({ children, cookies }: { children: ReactNode; cookies: 
           {/* Hidden Reown AppKit button for initialization */}
           {/* @ts-expect-error - Web component */}
           <appkit-button style={{ display: 'none' }} id="hidden-appkit-button" />
-          {children}
+          <SubscriptionProvider>
+            {children}
+          </SubscriptionProvider>
         </AppKitContext.Provider>
       </QueryClientProvider>
     </WagmiProvider>

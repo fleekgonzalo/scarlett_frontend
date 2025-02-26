@@ -4,9 +4,9 @@ import { useAuth } from '@/hooks/useAuth'
 import { LoginSelector } from './LoginSelector'
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isReady } = useAuth()
+  const { isAuthenticated, ready } = useAuth()
 
-  if (!isReady) {
+  if (!ready) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">

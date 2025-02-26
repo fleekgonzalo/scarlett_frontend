@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Client, type Signer, Conversation, DecodedMessage } from '@xmtp/browser-sdk'
 import { useAccount, useSignMessage } from 'wagmi'
+import { useSubscription } from '@/context/SubscriptionContext'
+import { SubscriptionTier } from '@/services/unlock'
 
 const TUTOR_BOT_ADDRESS = '0x81b185387Fc4de811b7dd5cECeEC27A308E39E8B'
 const ENCODING = 'binary'
@@ -53,6 +55,7 @@ const isSystemMessage = (content: any): boolean => {
 export function useXmtp() {
   const { address, isConnected } = useAccount()
   const { signMessageAsync } = useSignMessage()
+  const { tier } = useSubscription()
   
   const [client, setClient] = useState<Client | null>(null)
   const [isInitializing, setIsInitializing] = useState(false)
@@ -68,6 +71,14 @@ export function useXmtp() {
     uuid?: string
   } | null>(null)
   const MAX_INIT_ATTEMPTS = 5
+
+  // Add a new state variable to track subscription status
+  const [isPremium, setIsPremium] = useState(false)
+  
+  // Update premium status when tier changes
+  useEffect(() => {
+    setIsPremium(tier === SubscriptionTier.PREMIUM)
+  }, [tier])
 
   // Load message history when client is initialized
   const loadMessageHistory = async (xmtp: Client) => {
@@ -573,266 +584,73 @@ export function useXmtp() {
 
   // Function to send answer to tutor bot
   const sendAnswer = async (questionAnswer: QuestionAnswer): Promise<AnswerResponse> => {
-    if (!client || !conversation) {
-      console.error('Cannot send answer: XMTP client not initialized')
+    if (!conversation || !client) {
       throw new Error('XMTP client not initialized')
     }
 
     try {
-      // Send the answer as JSON
-      const message = JSON.stringify(questionAnswer)
-      console.log('Sending answer to tutor:', message)
+      console.log('Sending answer validation request:', questionAnswer)
       
-      // Add message to local state immediately (optimistic update)
-      setMessages(prev => [...prev, { role: 'user', content: message }])
+      // Create a unique ID for this answer request
+      const answerId = `${questionAnswer.uuid}-${Date.now()}`
       
-      // Store the current question UUID to verify responses
-      const currentQuestionUuid = questionAnswer.uuid
-      console.log('Current question UUID:', currentQuestionUuid)
-      
-      // Check if we already have a response for this question
-      // If the response was received in the last 5 seconds, use it immediately
-      if (latestResponse && 
-          (Date.now() - latestResponse.timestamp < 5000)) {
-        // Only use the response if it's for the current question
-        const latestContent = typeof latestResponse.response === 'object' && latestResponse.response
-        console.log('Checking cached response:', latestContent, 'UUID:', latestResponse.uuid)
-        
-        // Check if the response is for the current question
-        if (!latestResponse.uuid || latestResponse.uuid === currentQuestionUuid) {
-          console.log('Using cached response for current question')
-          // Clear the latest response to avoid reusing it for future questions
-          setLatestResponse(null)
-          return latestResponse.response
-        } else {
-          console.log('Cached response is for a different question, ignoring')
-        }
+      // Add subscription tier to the message
+      const messageWithTier = {
+        ...questionAnswer,
+        tier: tier,
+        isPremium: isPremium
       }
-      
-      // Check if there's a response in the last few messages
-      // This handles the case where the response arrived before we created the promise
-      const recentMessages = messages.slice(-20);
-      for (const msg of recentMessages) {
-        if (msg.role === 'assistant') {
-          try {
-            const content = JSON.parse(msg.content);
-            if ('correct' in content) {
-              console.log('Found potential response in recent messages:', content);
-              
-              // Check if this response corresponds to our current question
-              // Look for the matching request in recent messages
-              const requestIndex = recentMessages.findIndex(m => 
-                m.role === 'user' && 
-                m.content.includes(currentQuestionUuid)
-              );
-              
-              // If we found a matching request, and this response comes after it
-              if (requestIndex !== -1) {
-                const responseIndex = recentMessages.indexOf(msg);
-                if (responseIndex > requestIndex) {
-                  // Make sure there are no other question requests between this request and response
-                  const messagesBetween = recentMessages.slice(requestIndex + 1, responseIndex);
-                  const otherRequestBetween = messagesBetween.some(m => 
-                    m.role === 'user' && 
-                    m.content.includes('"uuid"') && 
-                    m.content.includes('"selectedAnswer"')
-                  );
-                  
-                  if (!otherRequestBetween) {
-                    console.log('Response matches current question request');
-                    
-                    // Create response with audio information
-                    const response: AnswerResponse = {
-                      isCorrect: content.correct,
-                      explanation: content.explanation || ''
-                    }
-                    
-                    // Add audio source based on whether the answer is correct or not
-                    if (content.correct) {
-                      // For correct answers, use a random local audio file with absolute path
-                      response.audioSrc = getRandomCorrectAudio()
-                      // Set explanation based on the audio file if not provided
-                      if (!response.explanation) {
-                        response.explanation = getExplanationFromAudio(response.audioSrc)
-                      }
-                    } else if (content.audio_cid) {
-                      // For incorrect answers, use the audio_cid from the response
-                      response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
-                    }
-                    
-                    return response;
-                  } else {
-                    console.log('Found another question request between this request and response, ignoring');
-                  }
-                } else {
-                  console.log('Response is from a previous question, ignoring');
-                }
-              } else {
-                console.log('No matching request found for this response, ignoring');
-              }
-            }
-          } catch (e) {
-            // Not JSON or not a response, continue checking
-          }
-        }
-      }
-      
-      // Create a resolver that will be used to resolve the promise
-      let resolvePromise: (value: AnswerResponse) => void;
       
       // Create a promise that will be resolved when we get a response
-      const responsePromise = new Promise<AnswerResponse>(resolve => {
-        resolvePromise = resolve;
-      });
-      
-      // Generate a unique ID for this answer that includes the question UUID
-      const answerId = `${questionAnswer.uuid}-${Date.now()}`
-      console.log('Created pending answer with ID:', answerId)
-      
-      // Store the resolver function in a variable we can access immediately
-      const pendingAnswersMap = new Map(pendingAnswers);
-      pendingAnswersMap.set(answerId, resolvePromise!);
-      console.log('Added resolver to pendingAnswers map, size now:', pendingAnswersMap.size);
-      
-      // Update the state
-      setPendingAnswers(pendingAnswersMap);
-      
-      // Create a direct reference to the latest messages for checking
-      const currentMessages = [...messages];
-      
-      // Set a timeout to check for responses in case the stream misses it
-      const timeoutId = setTimeout(() => {
-        console.log('Checking for missed responses...');
-        
-        // Check if any new messages have arrived that might be responses
-        const newMessages = messages.filter(msg => !currentMessages.includes(msg));
-        
-        for (const msg of newMessages) {
-          if (msg.role === 'assistant') {
-            try {
-              const content = JSON.parse(msg.content);
-              if ('correct' in content) {
-                console.log('Found missed response in messages:', content);
-                
-                // Check if this is for our current question
-                // Look for the matching request in recent messages
-                const requestIndex = messages.findIndex(m => 
-                  m.role === 'user' && 
-                  m.content.includes(currentQuestionUuid)
-                );
-                
-                // If we found a matching request, and this response comes after it
-                if (requestIndex !== -1) {
-                  const responseIndex = messages.indexOf(msg);
-                  if (responseIndex > requestIndex) {
-                    // Make sure there are no other question requests between this request and response
-                    const messagesBetween = messages.slice(requestIndex + 1, responseIndex);
-                    const otherRequestBetween = messagesBetween.some(m => 
-                      m.role === 'user' && 
-                      m.content.includes('"uuid"') && 
-                      m.content.includes('"selectedAnswer"')
-                    );
-                    
-                    if (!otherRequestBetween) {
-                      console.log('Response matches current question request');
-                      
-                      // Create response with audio information
-                      const response: AnswerResponse = {
-                        isCorrect: content.correct,
-                        explanation: content.explanation || ''
-                      }
-                      
-                      // Add audio source based on whether the answer is correct or not
-                      if (content.correct) {
-                        // For correct answers, use a random local audio file with absolute path
-                        response.audioSrc = getRandomCorrectAudio()
-                        // Set explanation based on the audio file if not provided
-                        if (!response.explanation) {
-                          response.explanation = getExplanationFromAudio(response.audioSrc)
-                        }
-                      } else if (content.audio_cid) {
-                        // For incorrect answers, use the audio_cid from the response
-                        response.audioSrc = `https://premium.aiozpin.network/ipfs/${content.audio_cid}`
-                      }
-                      
-                      resolvePromise(response);
-                      
-                      // Clear the pending answer
-                      setPendingAnswers(prev => {
-                        const newMap = new Map(prev);
-                        newMap.delete(answerId);
-                        return newMap;
-                      });
-                      
-                      return; // Exit the timeout handler
-                    } else {
-                      console.log('Found another question request between this request and response, ignoring');
-                    }
-                  } else {
-                    console.log('Response is from a previous question, ignoring');
-                  }
-                }
-              }
-            } catch (e) {
-              // Not JSON or not a response, continue checking
-            }
-          }
-        }
-        
-        // If we get here, no response was found
-        console.log('No response found in messages, resolving with timeout');
-        resolvePromise({
-          isCorrect: false,
-          explanation: 'No response received from tutor within timeout period'
-        });
-        
-        // Clear the pending answer
-        setPendingAnswers(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(answerId);
-          return newMap;
-        });
-      }, 30000);
+      const responsePromise = new Promise<AnswerResponse>((resolve) => {
+        pendingAnswers.set(answerId, resolve)
+      })
       
       // Send the message
-      await conversation.send(message);
-      console.log('Answer sent successfully, waiting for response...');
+      await conversation.send(JSON.stringify(messageWithTier))
       
-      // Return the promise that will be resolved when we get a response
-      return responsePromise;
+      // Set a timeout to clean up the pending answer if we don't get a response
+      setTimeout(() => {
+        if (pendingAnswers.has(answerId)) {
+          console.log('Answer validation timed out for:', answerId)
+          pendingAnswers.delete(answerId)
+        }
+      }, 30000) // 30 second timeout
+      
+      // Wait for the response
+      const response = await responsePromise
+      return response
     } catch (err) {
-      console.error('Failed to send answer:', err)
-      if (err instanceof Error) {
-        console.error('Error details:', {
-          message: err.message,
-          stack: err.stack,
-          cause: err.cause
-        })
-      }
-      setError('Failed to send answer to tutor')
+      console.error('Failed to send answer validation request:', err)
       throw err
     }
   }
 
   // Function to send a general message
   const sendMessage = async (message: string): Promise<string> => {
-    if (!client || !conversation) {
-      console.error('Cannot send message: XMTP client not initialized')
+    if (!conversation || !client) {
       throw new Error('XMTP client not initialized')
     }
 
     try {
       console.log('Sending message:', message)
       
-      // Add message to local state immediately (optimistic update)
-      setMessages(prev => [...prev, { role: 'user', content: message }])
+      // Add subscription tier to the message by modifying the content
+      // This is a simpler approach that doesn't require modifying the content type
+      const messageWithMetadata = JSON.stringify({
+        content: message,
+        metadata: {
+          tier: tier,
+          isPremium: isPremium,
+          timestamp: Date.now()
+        }
+      })
       
       // Send the message
-      await conversation.send(message)
-      console.log('Message sent successfully')
+      const sent = await conversation.send(messageWithMetadata)
       
-      // The response will be handled by the message stream
-      return message
+      console.log('Message sent:', sent)
+      return sent
     } catch (err) {
       console.error('Failed to send message:', err)
       throw err

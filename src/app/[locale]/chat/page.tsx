@@ -7,6 +7,9 @@ import { useParams } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Loading } from '@/components/ui/loading'
+import SubscriptionBanner from '@/components/SubscriptionBanner'
+import { useSubscription } from '@/context/SubscriptionContext'
+import { SubscriptionTier } from '@/services/unlock'
 
 const MESSAGES_PER_PAGE = 8
 
@@ -19,6 +22,8 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const [showLoadMore, setShowLoadMore] = useState(false)
+  const { tier } = useSubscription()
+  const isPremium = tier === SubscriptionTier.PREMIUM
 
   // Initialize with most recent messages
   useEffect(() => {
@@ -71,6 +76,11 @@ export default function ChatPage() {
           <ArrowLeft className="w-5 h-5 text-white" />
         </Link>
         <h1 className="text-xl font-semibold text-white">Chat History</h1>
+      </div>
+
+      {/* Subscription Banner */}
+      <div className="p-4">
+        <SubscriptionBanner showFreeFeatures={false} />
       </div>
 
       {/* Messages */}
@@ -166,13 +176,17 @@ export default function ChatPage() {
             type="text"
             value={inputValue}
             onChange={e => setInputValue(e.target.value)}
-            placeholder={locale === 'en' ? 'Ask me anything...' : '问我任何问题...'}
-            className="flex-1 bg-neutral-700 rounded-lg px-4 py-2 text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={isPremium 
+              ? (locale === 'en' ? 'Ask me anything with premium features...' : '使用高级功能问我任何问题...') 
+              : (locale === 'en' ? 'Ask me anything...' : '问我任何问题...')}
+            className={`flex-1 bg-neutral-700 rounded-lg px-4 py-2 text-white placeholder-neutral-400 focus:outline-none focus:ring-2 ${
+              isPremium ? 'focus:ring-blue-500 border border-blue-500/30' : 'focus:ring-neutral-500'
+            }`}
           />
           <Button 
             type="submit"
             size="icon"
-            className="bg-blue-600 hover:bg-blue-700"
+            className={isPremium ? "bg-blue-600 hover:bg-blue-700" : "bg-neutral-600 hover:bg-neutral-700"}
             disabled={isSending}
           >
             {isSending ? (
