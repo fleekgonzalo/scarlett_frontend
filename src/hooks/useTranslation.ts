@@ -15,13 +15,15 @@ const resources = {
   },
 };
 
-type NestedKeyOf<ObjectType extends object> = {
-  [Key in keyof ObjectType & (string | number)]: ObjectType[Key] extends object
-    ? `${Key}.${NestedKeyOf<ObjectType[Key]>}`
-    : `${Key}`;
-}[keyof ObjectType & (string | number)];
+// Recursive type for nested objects
+type RecursiveKeyOf<TObj extends object> = {
+  [TKey in keyof TObj & (string | number)]: TObj[TKey] extends object
+    ? `${TKey}` | `${TKey}.${RecursiveKeyOf<TObj[TKey]>}`
+    : `${TKey}`
+}[keyof TObj & (string | number)];
 
-type TranslationKey = NestedKeyOf<typeof enCommon>;
+// Define the translation key type
+export type TranslationKey = RecursiveKeyOf<typeof enCommon>;
 
 export function useTranslation(namespace: 'common' = 'common') {
   // Use useParams from App Router instead of useRouter from Pages Router
@@ -33,7 +35,7 @@ export function useTranslation(namespace: 'common' = 'common') {
   
   // Function to get a translation by key
   const t = useCallback(
-    (key: TranslationKey, params?: Record<string, string>) => {
+    (key: string, params?: Record<string, string>) => {
       // Split the key by dots to access nested properties
       const keys = key.split('.');
       

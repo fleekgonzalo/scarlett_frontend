@@ -4,7 +4,8 @@ export async function GET(
   request: Request,
   { params }: { params: { cid: string } }
 ) {
-  const { cid } = params;
+  // Await the params to ensure they're resolved
+  const cid = params.cid;
 
   try {
     console.log(`[IPFS API] Fetching content from CID: ${cid}`)
