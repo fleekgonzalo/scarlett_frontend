@@ -1,0 +1,12 @@
+{
+  "build": {
+    "image": "node:20.10.0",
+    "command": "npm install && npm run build",
+    "publicDir": ".next",
+    "baseDir": "",
+    "environment": {
+      "NODE_VERSION": "20.10.0",
+      "NODE_OPTIONS": "--max-old-space-size=4096"
+    }
+  }
+} 
