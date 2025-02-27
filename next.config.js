@@ -1,13 +1,22 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export', // Ensures static export
+  reactStrictMode: true,
+  images: {
+    unoptimized: true, // Required for static export
+  },
+  trailingSlash: true,
+
   // Disable ESLint during build
   eslint: {
     ignoreDuringBuilds: true,
   },
+
   // Disable TypeScript type checking during build
   typescript: {
     ignoreBuildErrors: true,
   },
+
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -19,11 +28,12 @@ const nextConfig = {
         tls: false,
         os: false,
         path: false
-      }
+      };
     }
-    config.externals.push('pino-pretty', 'lokijs', 'encoding')
-    return config
+    config.externals.push('pino-pretty', 'lokijs', 'encoding');
+    return config;
   },
+
   async headers() {
     return [
       {
@@ -50,8 +60,8 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
         ]
       }
-    ]
+    ];
   }
-}
+};
 
-module.exports = nextConfig 
+module.exports = nextConfig;
