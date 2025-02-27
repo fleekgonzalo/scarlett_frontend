@@ -2,6 +2,9 @@
   "name": "scarlett-next-v1",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.10.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -54,6 +57,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.20",
+    "critters": "^0.0.23",
     "eslint": "^9",
     "eslint-config-next": "15.2.0-canary.69",
     "postcss": "^8.5.3",
