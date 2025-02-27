@@ -1,5 +1,7 @@
 'use client'
 
+
+
 import { SongCard } from '@/components/SongCard'
 import { ChatPreview } from '@/components/ChatPreview'
 import { useParams } from 'next/navigation'

@@ -1,8 +1,8 @@
 {
   "build": {
     "image": "node:20.10.0",
-    "command": "npm install && npm run build",
-    "publicDir": ".next",
+    "command": "npm install && npm install @fleek-platform/next && npx fleek-next build",
+    "publicDir": ".fleek/static",
     "baseDir": "",
     "environment": {
       "NODE_VERSION": "20.10.0",

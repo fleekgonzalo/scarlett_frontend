@@ -14,6 +14,7 @@
   "dependencies": {
     "@assistant-ui/react": "^0.7.88",
     "@assistant-ui/react-markdown": "^0.7.21",
+    "@fleek-platform/next": "^2.2.1",
     "@irys/upload": "^0.0.15",
     "@irys/upload-ethereum": "^0.0.16",
     "@irys/web-upload": "^0.0.15",
@@ -39,6 +40,7 @@
     "i": "^0.3.7",
     "lucide-react": "^0.475.0",
     "next": "15.2.0-canary.69",
+    "node-fetch": "^3.3.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-spinners": "^0.15.0",

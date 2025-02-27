@@ -3,7 +3,6 @@
 import { wagmiAdapter, projectId, customBaseSepolia } from '@/config/wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createAppKit } from '@reown/appkit/react'
-import { mainnet } from '@reown/appkit/networks'
 import React, { type ReactNode, useEffect, createContext, useContext } from 'react'
 import { cookieToInitialState, WagmiProvider, type Config } from 'wagmi'
 import SubscriptionProvider from './SubscriptionContext'
